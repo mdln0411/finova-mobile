@@ -1,9 +1,9 @@
 
-# Finova — Financial Inovation
+# Finova — Company Accounting Mobile Application
 
 ## 1. Nama Aplikasi
 
-**Finova — Smarter Business Finance**
+**Finova — Financial Inovation**
 
 Finova merupakan aplikasi manajemen keuangan perusahaan berbasis mobile yang dirancang untuk membantu usaha kecil dan menengah (UKM) mengelola aktivitas keuangan secara praktis, terstruktur, dan efisien.
 
