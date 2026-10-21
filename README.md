@@ -1,5 +1,5 @@
-# finova-mobile
-# Finova — Company Accounting Mobile Application
+
+# Finova — Financial Inovation
 
 ## 1. Nama Aplikasi
 
