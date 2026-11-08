@@ -1,5 +1,6 @@
 import 'fake_company_repository.dart';
 import 'fake_chart_of_accounts_repository.dart';
+import 'fake_transactions_repository.dart';
 
 import 'dart:async';
 
@@ -150,4 +151,5 @@ Future<FinovaApp> authenticatedApp() async => FinovaApp(
   authController: await readyAuth(),
   companyRepository: FakeCompanyRepository(),
   chartRepository: FakeChartOfAccountsRepository(),
+  transactionsRepository: FakeTransactionsRepository(),
 );

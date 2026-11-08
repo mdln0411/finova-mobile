@@ -42,11 +42,14 @@ void main() {
   testWidgets('Tab utama dan seluruh modul menu dapat dibuka', (tester) async {
     await tester.pumpWidget(await authenticatedApp());
     await tester.pumpAndSettle();
-    for (final label in ['Transaksi', 'Persetujuan']) {
-      await tester.tap(find.text(label));
+    for (final (label, content) in [
+      ('Transaksi', 'Belum ada transaksi.'),
+      ('Persetujuan', 'Tidak ada transaksi yang menunggu persetujuan.'),
+    ]) {
+      await tester.tap(find.widgetWithText(NavigationDestination, label));
       await tester.pumpAndSettle();
-      expect(find.text('Ruang untuk langkah berikutnya'), findsOneWidget);
-      await tester.tap(find.text('Ke Beranda'));
+      expect(find.text(content), findsOneWidget);
+      await tester.tap(find.widgetWithText(NavigationDestination, 'Beranda'));
       await tester.pumpAndSettle();
       expect(find.text('finova'), findsOneWidget);
     }
@@ -69,6 +72,10 @@ void main() {
               ? 'Keluar dari akun'
               : destination == AppDestination.categories
               ? 'Kategori Akun'
+              : destination == AppDestination.transactions
+              ? 'Belum ada transaksi.'
+              : destination == AppDestination.approvals
+              ? 'Tidak ada transaksi yang menunggu persetujuan.'
               : 'Ruang untuk langkah berikutnya',
         ),
         findsOneWidget,

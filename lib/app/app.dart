@@ -6,6 +6,7 @@ import '../features/company/application/company_controller.dart';
 import '../features/company/data/firebase_company_repository.dart';
 import '../features/company/domain/company_repository.dart';
 import '../features/chart_of_accounts/domain/chart_of_accounts_repository.dart';
+import '../features/transactions/domain/transactions_repository.dart';
 
 import 'routes/app_router.dart';
 import 'theme/app_theme.dart';
@@ -16,10 +17,12 @@ class FinovaApp extends StatefulWidget {
     required this.authController,
     this.companyRepository,
     this.chartRepository,
+    this.transactionsRepository,
   });
   final AuthController authController;
   final CompanyRepository? companyRepository;
   final ChartOfAccountsRepository? chartRepository;
+  final TransactionsRepository? transactionsRepository;
   @override
   State<FinovaApp> createState() => _FinovaAppState();
 }
@@ -33,6 +36,7 @@ class _FinovaAppState extends State<FinovaApp> {
     auth: widget.authController,
     company: _company,
     chartRepository: widget.chartRepository,
+    transactionsRepository: widget.transactionsRepository,
   );
   @override
   void dispose() {

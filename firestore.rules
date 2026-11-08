@@ -161,6 +161,81 @@ service cloud.firestore {
         allow create: if manager(companyId) && validChartAccount(companyId, code);
         allow update, delete: if false;
       }
+
+      // Transaksi pemasukan/pengeluaran. Status awal selalu pending; hanya
+      // pembuat yang dapat edit/hapus selama pending; hanya Manager yang
+      // memutuskan. Transaksi approved/rejected immutable.
+      match /transactions/{txId} {
+        allow get, list: if activeCompany(companyId);
+        allow create: if activeCompany(companyId)
+          && validTransactionBody(companyId)
+          && request.resource.data.keys().hasAll(['type', 'amount', 'date',
+            'description', 'cashAccountId', 'categoryAccountId', 'status',
+            'createdBy', 'createdAt', 'approvedBy', 'approvedAt', 'rejectReason'])
+          && request.resource.data.status == 'pending'
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.approvedBy == null
+          && request.resource.data.approvedAt == null
+          && request.resource.data.rejectReason == null;
+        allow update: if activeCompany(companyId)
+          && resource.data.status == 'pending'
+          && ((resource.data.createdBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'type', 'amount', 'date', 'description', 'cashAccountId',
+                'categoryAccountId'])
+              && validTransactionBody(companyId))
+            || (manager(companyId) && validDecision()));
+        allow delete: if activeCompany(companyId)
+          && resource.data.status == 'pending'
+          && resource.data.createdBy == request.auth.uid;
+      }
+    }
+
+    function activeCompany(companyId) {
+      return activeMember(companyId)
+        && get(/databases/$(database)/documents/companies/$(companyId)).data.status == 'active';
+    }
+
+    function coaAccount(companyId, code) {
+      return get(/databases/$(database)/documents/companies/$(companyId)/chart_of_accounts/$(code)).data;
+    }
+
+    // Field yang dapat diisi pembuat. Nominal integer Rupiah > 0; tanggal
+    // tidak sebelum awal pembukuan dan tidak di masa depan (toleransi zona waktu).
+    function validTransactionBody(companyId) {
+      let d = request.resource.data;
+      let cash = coaAccount(companyId, d.cashAccountId);
+      let category = coaAccount(companyId, d.categoryAccountId);
+      return d.keys().hasOnly(['type', 'amount', 'date', 'description',
+          'cashAccountId', 'categoryAccountId', 'status', 'createdBy',
+          'createdAt', 'approvedBy', 'approvedAt', 'rejectReason'])
+        && d.type in ['income', 'expense']
+        && d.amount is int && d.amount > 0 && d.amount <= 999999999999999
+        && d.date is timestamp
+        && d.date >= get(/databases/$(database)/documents/companies/$(companyId)).data.bookkeepingStartDate
+        && d.date <= request.time + duration.value(1, 'd')
+        && d.description is string
+        && d.description.size() >= 1 && d.description.size() <= 200
+        && d.description.matches('(?s).*[^[:space:]].*')
+        && d.cashAccountId is string && d.cashAccountId.matches('^1[12][0-9]{2}$')
+        && cash.type == 'asset' && cash.isPosting == true && cash.isActive == true
+        && d.categoryAccountId is string && d.categoryAccountId.matches('^[45][0-9]{3}$')
+        && category.type == (d.type == 'income' ? 'revenue' : 'expense')
+        && category.isPosting == true && category.isActive == true;
+    }
+
+    // Keputusan Manager: approvedBy/approvedAt mencatat pengambil keputusan.
+    function validDecision() {
+      let d = request.resource.data;
+      return d.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'approvedBy', 'approvedAt', 'rejectReason'])
+        && d.approvedBy == request.auth.uid
+        && d.approvedAt == request.time
+        && ((d.status == 'approved' && d.rejectReason == null)
+          || (d.status == 'rejected' && d.rejectReason is string
+            && d.rejectReason.size() >= 3 && d.rejectReason.size() <= 500
+            && d.rejectReason.matches('(?s).*[^[:space:]].*')));
     }
 
     function validChartAccount(companyId, code) {
@@ -251,7 +326,7 @@ service cloud.firestore {
                 && getAfter(/databases/$(database)/documents/companies/$(resource.data.companyId)/members/$(request.auth.uid)).data.invitationId == invitationId))));
     }
 
-    // Transaksi, ledger, dan collection lain tetap tertutup.
+    // Ledger dan collection lain tetap tertutup.
     match /{document=**} {
       allow read, write: if false;
     }

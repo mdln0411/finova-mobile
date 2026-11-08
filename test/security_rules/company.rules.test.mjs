@@ -292,9 +292,10 @@ test('COA: posting memerlukan induk sesuai pada perusahaan yang sama, getAfter m
   await assertFails(updateDoc(chartRef(store, '4100'), { type: 'expense', normalBalance: 'debit', updatedAt: serverTimestamp() }));
   await assertFails(deleteDoc(chartRef(store, '4000')));
 });
-test('COA: perusahaan nonaktif dan collection transaksi/ledger tetap tertutup', async () => {
+test('COA: perusahaan nonaktif dan collection ledger tetap tertutup', async () => {
   await seedCompany(); const store = db('manager');
-  for (const name of ['transactions', 'ledger']) {
+  await assertFails(setDoc(doc(store, 'companies', 'manager', 'transactions', 'entry'), { amount: 100 }));
+  for (const name of ['ledger']) {
     await assertFails(setDoc(doc(store, 'companies', 'manager', name, 'entry'), { amount: 100 }));
     await assertFails(getDocs(collection(store, 'companies', 'manager', name)));
   }
