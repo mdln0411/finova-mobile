@@ -1,4 +1,6 @@
-import 'package:finova/app/app.dart';
+import 'support/fake_company_repository.dart';
+import 'support/fake_auth_repository.dart';
+
 import 'package:finova/app/routes/app_destinations.dart';
 import 'package:finova/app/routes/app_router.dart';
 import 'package:finova/app/theme/app_theme.dart';
@@ -14,31 +16,31 @@ void main() {
     expect(formatRupiah(-1250000), '-Rp 1.250.000');
   });
 
-  testWidgets('Dashboard menampilkan ringkasan dan transaksi contoh', (
-    tester,
-  ) async {
-    await tester.pumpWidget(const FinovaApp());
-    await tester.pumpAndSettle();
-    expect(find.text('finova'), findsOneWidget);
-    expect(find.text('Rp 48.750.000'), findsOneWidget);
-    expect(find.text('Oktober 2026'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.text('Transaksi terbaru'),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.scrollUntilVisible(
-      find.text('Menunggu'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.text('Pembayaran proyek website'), findsOneWidget);
-    expect(find.text('Menunggu'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'Dashboard menampilkan perusahaan dan empty state tanpa angka dummy',
+    (tester) async {
+      await tester.pumpWidget(await authenticatedApp());
+      await tester.pumpAndSettle();
+      expect(find.text('finova'), findsOneWidget);
+      expect(find.text('CV Finova Sejahtera'), findsOneWidget);
+      expect(find.text('Manager · Anggota aktif'), findsOneWidget);
+      expect(find.text('Rp 48.750.000'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.text('Transaksi terbaru'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        find.text('Belum ada transaksi. Modul pencatatan belum tersedia.'),
+        findsOneWidget,
+      );
+      expect(find.text('Pembayaran proyek website'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('Tab utama dan seluruh modul menu dapat dibuka', (tester) async {
-    await tester.pumpWidget(const FinovaApp());
+    await tester.pumpWidget(await authenticatedApp());
     await tester.pumpAndSettle();
     for (final label in ['Transaksi', 'Persetujuan']) {
       await tester.tap(find.text(label));
@@ -63,6 +65,10 @@ void main() {
         find.text(
           destination == AppDestination.dashboard
               ? 'finova'
+              : destination == AppDestination.settings
+              ? 'Keluar dari akun'
+              : destination == AppDestination.categories
+              ? 'Kategori Akun'
               : 'Ruang untuk langkah berikutnya',
         ),
         findsOneWidget,
@@ -77,7 +83,12 @@ void main() {
   testWidgets('Deep link dan rute tidak dikenal dapat dipulihkan', (
     tester,
   ) async {
-    final router = createAppRouter(initialLocation: '/reports');
+    final auth = await readyAuth();
+    final router = createAppRouter(
+      auth: auth,
+      company: await readyCompany(auth),
+      initialLocation: '/reports',
+    );
     addTearDown(router.dispose);
     await tester.pumpWidget(
       MaterialApp.router(theme: AppTheme.light, routerConfig: router),
@@ -102,7 +113,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      await tester.pumpWidget(const FinovaApp());
+      await tester.pumpWidget(await authenticatedApp());
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       for (var i = 0; i < 12; i++) {

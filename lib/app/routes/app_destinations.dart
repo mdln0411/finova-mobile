@@ -38,6 +38,12 @@ enum AppDestination {
     'Lihat rekening dan kas operasional perusahaan.',
     Icons.account_balance_wallet_outlined,
   ),
+  categories(
+    '/categories',
+    'Kategori Akun',
+    'Daftar akun pembukuan perusahaan (Chart of Accounts).',
+    Icons.account_tree_outlined,
+  ),
   reports(
     '/reports',
     'Laporan',

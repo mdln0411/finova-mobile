@@ -1,0 +1,24 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "finova-8592e",
+          "appId": "1:236513310567:android:d1e65994bb0be1942ce1c2",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "finova-8592e",
+          "configurations": {
+            "android": "1:236513310567:android:d1e65994bb0be1942ce1c2"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

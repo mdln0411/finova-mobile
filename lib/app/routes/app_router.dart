@@ -11,9 +11,66 @@ import '../../features/payables/presentation/payables_page.dart';
 import '../../features/accounts/presentation/accounts_page.dart';
 import '../../features/reports/presentation/reports_page.dart';
 import '../../features/settings/presentation/settings_page.dart';
+import '../../features/auth/application/auth_controller.dart';
+import '../../features/auth/presentation/auth_page.dart';
+import '../../features/auth/presentation/session_page.dart';
+import '../../features/auth/presentation/complete_profile_page.dart';
+import '../../features/company/application/company_controller.dart';
+import '../../features/company/domain/company.dart';
+import '../../features/company/presentation/company_onboarding_page.dart';
+import '../../features/company/presentation/company_form_page.dart';
+import '../../features/company/presentation/company_invitations_page.dart';
+import '../../features/chart_of_accounts/domain/chart_of_accounts_repository.dart';
+import '../../features/chart_of_accounts/data/firebase_chart_of_accounts_repository.dart';
+import '../../features/chart_of_accounts/presentation/chart_of_accounts_page.dart';
 
-GoRouter createAppRouter({String initialLocation = '/'}) => GoRouter(
+GoRouter createAppRouter({
+  required AuthController auth,
+  required CompanyController company,
+  ChartOfAccountsRepository? chartRepository,
+  String initialLocation = '/',
+}) => GoRouter(
   initialLocation: initialLocation,
+  refreshListenable: Listenable.merge([auth, company]),
+  redirect: (context, state) {
+    final path = state.uri.path;
+    final isAuthPage = [
+      '/login',
+      '/register',
+      '/forgot-password',
+    ].contains(path);
+    final authRedirect = switch (auth.phase) {
+      AuthPhase.loading ||
+      AuthPhase.profileError ||
+      AuthPhase.sessionError => path == '/session' ? null : '/session',
+      AuthPhase.signedOut => isAuthPage ? null : '/login',
+      AuthPhase.profileIncomplete =>
+        path == '/complete-profile' ? null : '/complete-profile',
+      AuthPhase.signedIn => null,
+    };
+    if (auth.phase != AuthPhase.signedIn) return authRedirect;
+    switch (company.phase) {
+      case CompanyPhase.waiting:
+      case CompanyPhase.loading:
+      case CompanyPhase.error:
+        return path == '/company' ? null : '/company';
+      case CompanyPhase.noCompany:
+        return ['/company', '/company/create', '/company/join'].contains(path)
+            ? null
+            : '/company';
+      case CompanyPhase.active:
+        if (path == '/company/invitations' &&
+            company.context?.role != CompanyRole.manager) {
+          return '/';
+        }
+        return isAuthPage ||
+                path == '/session' ||
+                path == '/complete-profile' ||
+                ['/company', '/company/create', '/company/join'].contains(path)
+            ? '/'
+            : null;
+    }
+  },
   errorBuilder: (context, state) => Scaffold(
     appBar: AppBar(title: const Text('Halaman tidak ditemukan')),
     body: Center(
@@ -24,11 +81,66 @@ GoRouter createAppRouter({String initialLocation = '/'}) => GoRouter(
     ),
   ),
   routes: [
+    GoRoute(
+      path: '/company',
+      builder: (context, state) => CompanyOnboardingPage(controller: company),
+    ),
+    GoRoute(
+      path: '/company/create',
+      builder: (context, state) => CompanyFormPage(controller: company),
+    ),
+    GoRoute(
+      path: '/company/join',
+      builder: (context, state) => CompanyInvitationsPage(controller: company),
+    ),
+    GoRoute(
+      path: '/company/invitations',
+      builder: (context, state) =>
+          CompanyInvitationsPage(controller: company, manage: true),
+    ),
+    GoRoute(
+      path: '/complete-profile',
+      builder: (context, state) => CompleteProfilePage(controller: auth),
+    ),
+    GoRoute(
+      path: '/session',
+      builder: (context, state) => SessionPage(controller: auth),
+    ),
+    GoRoute(
+      path: '/login',
+      builder: (context, state) => AuthPage(
+        key: const ValueKey('login'),
+        controller: auth,
+        mode: AuthPageMode.login,
+      ),
+    ),
+    GoRoute(
+      path: '/register',
+      builder: (context, state) => AuthPage(
+        key: const ValueKey('register'),
+        controller: auth,
+        mode: AuthPageMode.register,
+      ),
+    ),
+    GoRoute(
+      path: '/forgot-password',
+      builder: (context, state) => AuthPage(
+        key: const ValueKey('reset'),
+        controller: auth,
+        mode: AuthPageMode.reset,
+      ),
+    ),
     ShellRoute(
       builder: (context, state, child) =>
           AppShell(location: state.uri.path, child: child),
       routes: [
-        GoRoute(path: '/', builder: (context, state) => const DashboardPage()),
+        GoRoute(
+          path: '/',
+          builder: (context, state) => DashboardPage(
+            userName: auth.profile?.displayName,
+            company: company.context!,
+          ),
+        ),
         GoRoute(
           path: '/transactions',
           builder: (context, state) => const TransactionsPage(),
@@ -51,12 +163,29 @@ GoRouter createAppRouter({String initialLocation = '/'}) => GoRouter(
           builder: (context, state) => const AccountsPage(),
         ),
         GoRoute(
+          path: '/categories',
+          builder: (context, state) => ListenableBuilder(
+            listenable: company,
+            builder: (context, _) {
+              final current = company.context;
+              if (current == null) return const SizedBox.shrink();
+              return ChartOfAccountsPage(
+                key: ValueKey('${current.company.id}:${current.role.name}'),
+                company: current,
+                repository:
+                    chartRepository ?? FirebaseChartOfAccountsRepository(),
+              );
+            },
+          ),
+        ),
+        GoRoute(
           path: '/reports',
           builder: (context, state) => const ReportsPage(),
         ),
         GoRoute(
           path: '/settings',
-          builder: (context, state) => const SettingsPage(),
+          builder: (context, state) =>
+              SettingsPage(auth: auth, company: company.context!),
         ),
       ],
     ),

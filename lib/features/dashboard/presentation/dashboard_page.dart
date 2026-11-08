@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme/app_colors.dart';
-import '../../../core/utils/rupiah.dart';
 import '../../../core/widgets/finova_card.dart';
-import '../data/dashboard_dummy_data.dart';
+import '../../company/domain/company.dart';
+import '../../company/presentation/company_form_page.dart';
 import 'widgets/activity_chart.dart';
-import 'widgets/recent_transaction_tile.dart';
 import 'widgets/summary_card.dart';
 
 class DashboardPage extends StatelessWidget {
-  const DashboardPage({super.key, this.data = dashboardDummyData});
-  final DashboardSnapshot data;
+  const DashboardPage({super.key, required this.company, this.userName});
+  final CompanyContext company;
+  final String? userName;
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
@@ -20,10 +20,10 @@ class DashboardPage extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _Header(company: data.company),
+        _Header(company: company),
         const SizedBox(height: 30),
         Text(
-          'Halo, ${data.userName} 👋',
+          'Halo, ${userName ?? 'Pengguna Finova'} 👋',
           style: Theme.of(context).textTheme.headlineSmall
               ?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -.6),
         ),
@@ -45,21 +45,21 @@ class DashboardPage extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                data.period,
+                'Pembukuan IDR',
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            const Text(
-              '•  Data contoh',
-              style: TextStyle(fontSize: 11, color: AppColors.muted),
+            Text(
+              '${company.role.label} · Anggota aktif',
+              style: const TextStyle(fontSize: 11, color: AppColors.muted),
             ),
           ],
         ),
         const SizedBox(height: 16),
-        _BalanceCard(amount: data.cashBalance),
+        const _BalanceCard(),
         const SizedBox(height: 24),
         const SectionHeading(title: 'Ringkasan keuangan'),
         const SizedBox(height: 14),
@@ -80,8 +80,8 @@ class DashboardPage extends StatelessWidget {
                   width: width,
                   child: SummaryCard(
                     label: 'Pemasukan',
-                    amount: data.income,
-                    caption: 'Arus kas disetujui',
+                    amount: null,
+                    caption: 'Data belum tersedia',
                     icon: Icons.south_west_rounded,
                     accent: AppColors.primary,
                   ),
@@ -90,8 +90,8 @@ class DashboardPage extends StatelessWidget {
                   width: width,
                   child: SummaryCard(
                     label: 'Pengeluaran',
-                    amount: data.expense,
-                    caption: 'Arus kas disetujui',
+                    amount: null,
+                    caption: 'Data belum tersedia',
                     icon: Icons.north_east_rounded,
                     accent: AppColors.pink,
                   ),
@@ -100,8 +100,8 @@ class DashboardPage extends StatelessWidget {
                   width: width,
                   child: SummaryCard(
                     label: 'Piutang',
-                    amount: data.receivables,
-                    caption: '${data.receivableCount} tagihan pelanggan',
+                    amount: null,
+                    caption: 'Data belum tersedia',
                     icon: Icons.call_received_rounded,
                     accent: const Color(0xFF926A00),
                     onTap: () => context.push('/receivables'),
@@ -111,8 +111,8 @@ class DashboardPage extends StatelessWidget {
                   width: width,
                   child: SummaryCard(
                     label: 'Utang',
-                    amount: data.payables,
-                    caption: '${data.payableCount} tagihan pemasok',
+                    amount: null,
+                    caption: 'Data belum tersedia',
                     icon: Icons.call_made_rounded,
                     accent: AppColors.muted,
                     onTap: () => context.push('/payables'),
@@ -129,7 +129,7 @@ class DashboardPage extends StatelessWidget {
           onTap: () => context.push('/reports'),
         ),
         const SizedBox(height: 8),
-        ActivityChart(activity: data.activity),
+        const ActivityChart(activity: []),
         const SizedBox(height: 24),
         const SectionHeading(title: 'Akses cepat'),
         const SizedBox(height: 14),
@@ -166,27 +166,19 @@ class DashboardPage extends StatelessWidget {
           onTap: () => context.go('/transactions'),
         ),
         const SizedBox(height: 8),
-        FinovaCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Column(
-            children: [
-              if (data.recentTransactions.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text('Belum ada transaksi pada periode ini.'),
-                ),
-              for (var i = 0; i < data.recentTransactions.length; i++) ...[
-                RecentTransactionTile(transaction: data.recentTransactions[i]),
-                if (i < data.recentTransactions.length - 1)
-                  const Divider(height: 1),
-              ],
-            ],
+        const FinovaCard(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Belum ada transaksi. Modul pencatatan belum tersedia.',
+            ),
           ),
         ),
         const SizedBox(height: 16),
         const Text(
-          'Transaksi menunggu dan ditolak tidak termasuk saldo. '
-          'Arus kas ditampilkan terpisah dari utang-piutang dan bukan laba-rugi.',
+          'Ringkasan keuangan belum terhubung ke data transaksi. '
+          'Tanda — berarti data belum tersedia, bukan saldo nol.',
           style: TextStyle(fontSize: 11, color: AppColors.muted, height: 1.6),
         ),
       ],
@@ -196,23 +188,11 @@ class DashboardPage extends StatelessWidget {
 
 class _Header extends StatelessWidget {
   const _Header({required this.company});
-  final String company;
+  final CompanyContext company;
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Icon(
-          Icons.stacked_line_chart_rounded,
-          color: Colors.white,
-          size: 25,
-        ),
-      ),
+      CompanyLogo(url: company.company.logoUrl, size: 38),
       const SizedBox(width: 10),
       Expanded(
         child: Column(
@@ -227,7 +207,7 @@ class _Header extends StatelessWidget {
               ),
             ),
             Text(
-              company,
+              company.company.name,
               style: const TextStyle(fontSize: 10, color: AppColors.muted),
             ),
           ],
@@ -244,8 +224,7 @@ class _Header extends StatelessWidget {
 }
 
 class _BalanceCard extends StatelessWidget {
-  const _BalanceCard({required this.amount});
-  final int amount;
+  const _BalanceCard();
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
@@ -290,7 +269,7 @@ class _BalanceCard extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         Text(
-          formatRupiah(amount),
+          '—',
           style: Theme.of(context).textTheme.headlineLarge?.copyWith(
             color: Colors.white,
             fontWeight: FontWeight.w800,
@@ -299,7 +278,7 @@ class _BalanceCard extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         const Text(
-          'Saldo akhir periode · transaksi disetujui',
+          'Belum ada data saldo kas & bank',
           style: TextStyle(color: Colors.white, fontSize: 11, height: 1.5),
         ),
         const SizedBox(height: 4),
