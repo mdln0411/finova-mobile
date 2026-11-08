@@ -121,6 +121,19 @@ class CompanyController extends ChangeNotifier {
     return success;
   }
 
+  /// Pemeriksaan role di sini hanya UX; Rules menolak non-Manager.
+  Future<bool> updateLogo(String? logoSvg) async {
+    final current = context;
+    if (current?.role != CompanyRole.manager) return false;
+    final error = CompanyValidators.logoSvg(logoSvg);
+    if (error != null) {
+      message = error;
+      _emit();
+      return false;
+    }
+    return _action(() => _repository.updateLogo(current!.company.id, logoSvg));
+  }
+
   Future<bool> loadInvitations() => _action(() async {
     final uid = _uid;
     final generation = _generation;

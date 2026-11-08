@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme/app_colors.dart';
@@ -6,6 +7,7 @@ import '../../auth/domain/auth_validators.dart';
 import '../../auth/presentation/widgets/auth_layout.dart';
 import '../application/company_controller.dart';
 import '../domain/company.dart';
+import 'svg_logo_picker.dart';
 
 class CompanyFormPage extends StatefulWidget {
   const CompanyFormPage({super.key, required this.controller});
@@ -20,14 +22,14 @@ class _CompanyFormPageState extends State<CompanyFormPage> {
   final _address = TextEditingController();
   final _phone = TextEditingController();
   final _email = TextEditingController();
-  final _logo = TextEditingController();
   String? _businessType;
   DateTime? _date;
-  String? _previewUrl;
+  String? _logoSvg;
+  String? _logoError;
 
   @override
   void dispose() {
-    for (final field in [_name, _address, _phone, _email, _logo]) {
+    for (final field in [_name, _address, _phone, _email]) {
       field.dispose();
     }
     super.dispose();
@@ -55,9 +57,18 @@ class _CompanyFormPageState extends State<CompanyFormPage> {
         address: _address.text,
         phoneNumber: _phone.text,
         email: _email.text,
-        logoUrl: _logo.text,
+        logoSvg: _logoSvg,
       ),
     );
+  }
+
+  Future<void> _pickLogo() async {
+    final result = await pickSvgLogo();
+    if (!mounted || (result.svg == null && result.error == null)) return;
+    setState(() {
+      _logoSvg = result.svg ?? _logoSvg;
+      _logoError = result.error;
+    });
   }
 
   @override
@@ -174,7 +185,7 @@ class _CompanyFormPageState extends State<CompanyFormPage> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Masukkan tautan gambar HTTPS. Logo opsional; ikon bisnis digunakan jika kosong atau gagal dimuat.',
+                'Unggah file SVG (maks. 50 KB). Logo opsional; ikon bisnis digunakan jika kosong.',
                 style: TextStyle(
                   color: AppColors.muted,
                   height: 1.6,
@@ -182,33 +193,31 @@ class _CompanyFormPageState extends State<CompanyFormPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              Center(child: CompanyLogo(url: _previewUrl, size: 80)),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _logo,
-                enabled: !busy,
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: 'URL logo (opsional)',
-                  hintText: 'https://…',
-                ),
-                validator: CompanyValidators.logo,
-              ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: busy
-                      ? null
-                      : () {
-                          if (CompanyValidators.logo(_logo.text) == null) {
-                            setState(() => _previewUrl = _logo.text.trim());
-                          } else {
-                            _form.currentState!.validate();
-                          }
-                        },
-                  child: const Text('Pratinjau logo'),
-                ),
+              Center(child: CompanyLogo(svg: _logoSvg, size: 80)),
+              const SizedBox(height: 12),
+              if (_logoError != null) AuthMessage(message: _logoError!),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: busy ? null : _pickLogo,
+                    icon: const Icon(Icons.upload_file_rounded),
+                    label: Text(
+                      _logoSvg == null ? 'Unggah logo SVG' : 'Ganti logo SVG',
+                    ),
+                  ),
+                  if (_logoSvg != null)
+                    TextButton(
+                      onPressed: busy
+                          ? null
+                          : () => setState(() {
+                              _logoSvg = null;
+                              _logoError = null;
+                            }),
+                      child: const Text('Hapus logo'),
+                    ),
+                ],
               ),
               const SizedBox(height: 20),
               FilledButton.icon(
@@ -234,8 +243,10 @@ class _CompanyFormPageState extends State<CompanyFormPage> {
 }
 
 class CompanyLogo extends StatelessWidget {
-  const CompanyLogo({super.key, this.url, this.size = 40});
-  final String? url;
+  const CompanyLogo({super.key, this.svg, this.size = 40});
+
+  /// Teks SVG yang sudah divalidasi; ditampilkan hanya lewat flutter_svg.
+  final String? svg;
   final double size;
   @override
   Widget build(BuildContext context) {
@@ -257,13 +268,11 @@ class CompanyLogo extends StatelessWidget {
         child: SizedBox(
           width: size,
           height: size,
-          child: url == null || url!.isEmpty
+          child: svg == null
               ? fallback
-              : Image.network(
-                  url!,
+              : SvgPicture.string(
+                  svg!,
                   fit: BoxFit.contain,
-                  loadingBuilder: (context, child, progress) =>
-                      progress == null ? child : fallback,
                   errorBuilder: (context, error, stack) => fallback,
                 ),
         ),

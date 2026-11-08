@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../auth/domain/auth_validators.dart';
 
 enum CompanyRole {
@@ -15,14 +17,16 @@ class Company {
     required this.businessType,
     required this.bookkeepingStartDate,
     required this.createdBy,
-    this.logoUrl,
+    this.logoSvg,
   });
   final String id;
   final String name;
   final String businessType;
   final DateTime bookkeepingStartDate;
   final String createdBy;
-  final String? logoUrl;
+
+  /// Isi teks SVG logo; null berarti memakai ikon bawaan.
+  final String? logoSvg;
 }
 
 class CompanyContext {
@@ -39,7 +43,7 @@ class CompanyDraft {
     this.address = '',
     this.phoneNumber = '',
     this.email = '',
-    this.logoUrl = '',
+    this.logoSvg,
   });
   final String name;
   final String businessType;
@@ -47,7 +51,7 @@ class CompanyDraft {
   final String address;
   final String phoneNumber;
   final String email;
-  final String logoUrl;
+  final String? logoSvg;
 
   String? validate() =>
       CompanyValidators.name(name) ??
@@ -58,7 +62,7 @@ class CompanyDraft {
       CompanyValidators.address(address) ??
       AuthValidators.phone(phoneNumber) ??
       CompanyValidators.email(email) ??
-      CompanyValidators.logo(logoUrl);
+      CompanyValidators.logoSvg(logoSvg);
 }
 
 abstract final class CompanyValidators {
@@ -80,16 +84,24 @@ abstract final class CompanyValidators {
   static String? email(String? value) => value == null || value.trim().isEmpty
       ? null
       : AuthValidators.email(value);
-  static String? logo(String? value) {
-    if (value == null || value.trim().isEmpty) return null;
-    final url = Uri.tryParse(value.trim());
-    return value.trim().length <= 2048 &&
-            url != null &&
-            url.scheme == 'https' &&
-            url.host.isNotEmpty &&
-            url.userInfo.isEmpty
-        ? null
-        : 'Gunakan URL gambar HTTPS yang valid (maksimal 2048 karakter).';
+
+  /// Batas sama dengan Firestore Rules (`validLogoSvg`).
+  static const maxLogoBytes = 50 * 1024;
+  static final _eventAttribute = RegExp(r'[\s/]on[a-z]+\s*=');
+
+  /// Validasi client hanya untuk UX; Rules tetap menjadi pengaman utama.
+  static String? logoSvg(String? value) {
+    if (value == null) return null;
+    if (value.trim().isEmpty) return 'File SVG kosong.';
+    if (utf8.encode(value).length > maxLogoBytes) {
+      return 'Ukuran logo maksimal 50 KB.';
+    }
+    final lower = value.toLowerCase();
+    if (!lower.contains('<svg')) return 'File bukan gambar SVG yang valid.';
+    if (lower.contains('<script') || _eventAttribute.hasMatch(lower)) {
+      return 'SVG tidak boleh berisi script atau atribut event (on…).';
+    }
+    return null;
   }
 }
 

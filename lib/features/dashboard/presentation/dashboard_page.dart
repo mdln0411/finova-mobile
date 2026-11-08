@@ -192,7 +192,7 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      CompanyLogo(url: company.company.logoUrl, size: 38),
+      CompanyLogo(svg: company.company.logoSvg, size: 38),
       const SizedBox(width: 10),
       Expanded(
         child: Column(

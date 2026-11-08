@@ -15,7 +15,7 @@ const profile = (uid, completed = true) => ({ uid, displayName: 'Nama Pengguna',
   createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
 const company = (uid) => ({ name: 'Finova Sejahtera', businessType: 'Jasa',
   bookkeepingStartDate: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
-  address: '', phoneNumber: '', email: '', logoUrl: null, currency: 'IDR',
+  address: '', phoneNumber: '', email: '', logoSvg: null, currency: 'IDR',
   createdBy: uid, status: 'active', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
 const member = (uid, role = 'manager') => ({ uid, role, status: 'active', joinedAt: serverTimestamp() });
 const access = (uid, companyId) => ({ uid, companyId, createdAt: serverTimestamp() });
@@ -93,7 +93,7 @@ test('Perusahaan/Manager/link parsial dan field otorisasi tambahan ditolak', asy
   await assertFails(bootstrap(store, 'alice', { createdBy: 'other' }));
   await assertFails(bootstrap(store, 'alice', { name: '  ' }));
   await assertFails(bootstrap(store, 'alice', { currency: 'USD' }));
-  await assertFails(bootstrap(store, 'alice', { logoUrl: 'http://example.com/a.png' }));
+  await assertFails(bootstrap(store, 'alice', { logoSvg: '<svg onload="x()"></svg>' }));
 });
 test('Pengguna tidak dapat menjadi Manager di perusahaan orang lain atau membaca datanya', async () => {
   await seedCompany(); await seedProfile('attacker');
@@ -301,4 +301,22 @@ test('COA: perusahaan nonaktif dan collection transaksi/ledger tetap tertutup', 
   await env.withSecurityRulesDisabled(async (ctx) => updateDoc(doc(ctx.firestore(), 'companies', 'manager'), { status: 'inactive' }));
   await assertFails(getDocs(collection(store, 'companies', 'manager', 'chart_of_accounts')));
   await assertFails(setDoc(chartRef(store, '1000'), chartAccount('1000')));
+});
+
+const svgLogo = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+test('Logo SVG: hanya Manager yang dapat mengganti; script, on*, dan >50 KB ditolak', async () => {
+  await seedInvitation(); await assertSucceeds(accept(db('finance')));
+  const ref = (store) => doc(store, 'companies', 'manager');
+  const logo = (logoSvg) => ({ logoSvg, updatedAt: serverTimestamp() });
+  await assertSucceeds(updateDoc(ref(db('manager')), logo(svgLogo)));
+  await assertSucceeds(updateDoc(ref(db('manager')), logo(null)));
+  await assertFails(updateDoc(ref(db('finance')), logo(svgLogo)));
+  await assertFails(updateDoc(ref(env.unauthenticatedContext().firestore()), logo(svgLogo)));
+  for (const bad of ['<svg><script>alert(1)</script></svg>', '<SVG><SCRIPT/></SVG>',
+    '<svg onload="x()"></svg>', '<svg><rect\nonclick = "x()"/></svg>', 'bukan svg',
+    `<svg>${'a'.repeat(51200)}</svg>`]) {
+    await assertFails(updateDoc(ref(db('manager')), logo(bad)));
+  }
+  await assertFails(updateDoc(ref(db('manager')), { ...logo(svgLogo), name: 'Diubah' }));
+  await assertFails(updateDoc(ref(db('manager')), { logoSvg: svgLogo }));
 });

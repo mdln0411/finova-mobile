@@ -103,7 +103,7 @@ void main() {
     businessType: 'Jasa',
     bookkeepingStartDate: DateTime(2026, 1, 2),
     phoneNumber: '+62 812-3456-789',
-    logoUrl: 'https://example.com/logo.png',
+    logoSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>',
   );
 
   test('Repository mengomit tiga dokumen atomik, Manager hanya di perusahaan baru sendiri, retry idempoten', () async {

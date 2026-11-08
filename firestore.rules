@@ -72,13 +72,23 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role == 'manager';
     }
 
+    // Logo SVG inline: null atau teks <= 50 KB tanpa <script dan atribut on*.
+    // size() string dihitung per karakter; client juga membatasi 50 KB UTF-8.
+    function validLogoSvg(svg) {
+      return svg == null || (svg is string
+        && svg.size() >= 1 && svg.size() <= 51200
+        && svg.lower().matches('(?s).*<svg.*')
+        && !svg.lower().matches('(?s).*<script.*')
+        && !svg.lower().matches('(?s).*[[:space:]/]on[a-z]+[[:space:]]*=.*'));
+    }
+
     function validCompany() {
       let d = request.resource.data;
       return d.keys().hasAll(['name', 'businessType', 'bookkeepingStartDate',
-          'address', 'phoneNumber', 'email', 'logoUrl', 'currency', 'createdBy',
+          'address', 'phoneNumber', 'email', 'logoSvg', 'currency', 'createdBy',
           'status', 'createdAt', 'updatedAt'])
         && d.keys().hasOnly(['name', 'businessType', 'bookkeepingStartDate',
-          'address', 'phoneNumber', 'email', 'logoUrl', 'currency', 'createdBy',
+          'address', 'phoneNumber', 'email', 'logoSvg', 'currency', 'createdBy',
           'status', 'createdAt', 'updatedAt'])
         && d.name is string && d.name.size() >= 2 && d.name.size() <= 100
         && d.name.matches('.*[^[:space:]].*[^[:space:]].*')
@@ -90,7 +100,7 @@ service cloud.firestore {
         && d.phoneNumber is string && (d.phoneNumber == '' || d.phoneNumber.matches('^[+]?[0-9]{7,15}$'))
         && d.email is string && d.email.size() <= 320
         && (d.email == '' || d.email.matches('^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'))
-        && (d.logoUrl == null || (d.logoUrl is string && d.logoUrl.size() <= 2048 && d.logoUrl.matches('https://[^/]+.*')))
+        && validLogoSvg(d.logoSvg)
         && d.currency == 'IDR' && d.status == 'active'
         && d.createdBy == request.auth.uid
         && d.createdAt == request.time && d.updatedAt == request.time;
@@ -114,7 +124,13 @@ service cloud.firestore {
 
     match /companies/{companyId} {
       allow get: if activeMember(companyId) && resource.data.status == 'active';
-      allow list, update, delete: if false;
+      allow list, delete: if false;
+      // Hanya Manager aktif yang dapat mengganti/menghapus logo; field lain tetap.
+      allow update: if manager(companyId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['logoSvg', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && validLogoSvg(request.resource.data.get('logoSvg', null));
       // ID creator deterministik; seluruh bootstrap harus dalam commit yang sama.
       allow create: if profileReady() && companyId == request.auth.uid
         && !exists(/databases/$(database)/documents/company_access/$(request.auth.uid))

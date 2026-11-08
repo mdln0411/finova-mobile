@@ -196,7 +196,11 @@ GoRouter createAppRouter({
             builder: (context, _) {
               final current = company.context;
               if (current == null) return const SizedBox.shrink();
-              return SettingsPage(auth: auth, company: current);
+              return SettingsPage(
+                auth: auth,
+                company: current,
+                companyController: company,
+              );
             },
           ),
         ),

@@ -58,7 +58,7 @@ class FirebaseCompanyRepository implements CompanyRepository {
     final name = company?['name'];
     final date = company?['bookkeepingStartDate'];
     final creator = company?['createdBy'];
-    final logo = company?['logoUrl'];
+    final logo = company?['logoSvg'];
     if (company == null ||
         member == null ||
         company['status'] != 'active' ||
@@ -72,9 +72,7 @@ class FirebaseCompanyRepository implements CompanyRepository {
         creator is! String ||
         creator.isEmpty ||
         company['currency'] != 'IDR' ||
-        !CompanyValidators.businessTypes.contains(company['businessType']) ||
-        (logo != null &&
-            (logo is! String || CompanyValidators.logo(logo) != null))) {
+        !CompanyValidators.businessTypes.contains(company['businessType'])) {
       throw const CompanyFailure(
         'Membership atau data perusahaan tidak aktif/valid. Hubungi Manager.',
       );
@@ -86,7 +84,10 @@ class FirebaseCompanyRepository implements CompanyRepository {
         businessType: company['businessType'] as String,
         bookkeepingStartDate: date.toDate(),
         createdBy: creator,
-        logoUrl: logo as String?,
+        // Logo rusak tidak mengunci perusahaan; cukup kembali ke ikon bawaan.
+        logoSvg: logo is String && CompanyValidators.logoSvg(logo) == null
+            ? logo
+            : null,
       ),
       role: role == 'manager' ? CompanyRole.manager : CompanyRole.finance,
     );
@@ -206,7 +207,7 @@ class FirebaseCompanyRepository implements CompanyRepository {
         'address': draft.address.trim(),
         'phoneNumber': AuthValidators.normalizePhone(draft.phoneNumber),
         'email': draft.email.trim(),
-        'logoUrl': draft.logoUrl.trim().isEmpty ? null : draft.logoUrl.trim(),
+        'logoSvg': draft.logoSvg,
         'currency': 'IDR',
         'createdBy': uid,
         'status': 'active',
@@ -226,6 +227,20 @@ class FirebaseCompanyRepository implements CompanyRepository {
       });
     });
   });
+
+  @override
+  Future<void> updateLogo(String companyId, String? logoSvg) =>
+      _guard(() async {
+        final error = CompanyValidators.logoSvg(logoSvg);
+        if (error != null) throw CompanyFailure(error);
+        if (_auth.currentUser == null) {
+          throw const CompanyFailure('Sesi berakhir. Silakan masuk kembali.');
+        }
+        await _store.collection('companies').doc(companyId).update({
+          'logoSvg': logoSvg,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      });
 
   static CompanyInvitation parseInvitation(
     String id,

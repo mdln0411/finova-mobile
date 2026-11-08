@@ -70,6 +70,13 @@ class FakeCompanyRepository implements CompanyRepository {
     ];
   }
 
+  String? savedLogo;
+  @override
+  Future<void> updateLogo(String companyId, String? logoSvg) async {
+    if (failure != null) throw failure!;
+    savedLogo = logoSvg;
+  }
+
   @override
   Future<void> cancelInvitation(String invitationId) async {
     pending = [];

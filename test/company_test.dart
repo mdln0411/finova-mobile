@@ -18,14 +18,14 @@ CompanyDraft draft({
   String type = 'Jasa',
   String email = '',
   String phone = '',
-  String logo = '',
+  String? logo,
 }) => CompanyDraft(
   name: name,
   businessType: type,
   bookkeepingStartDate: DateTime(2026, 1, 1),
   email: email,
   phoneNumber: phone,
-  logoUrl: logo,
+  logoSvg: logo,
 );
 
 void main() {
@@ -36,9 +36,21 @@ void main() {
     expect(draft(type: 'Unknown').validate(), isNotNull);
     expect(draft(email: 'invalid').validate(), isNotNull);
     expect(draft(phone: 'abc').validate(), isNotNull);
-    expect(draft(logo: 'http://example.com/image.png').validate(), isNotNull);
-    expect(draft(logo: 'https://').validate(), isNotNull);
-    expect(draft(logo: 'https://example.com/image.png').validate(), isNull);
+    const svg =
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+    expect(draft(logo: svg).validate(), isNull);
+    expect(draft(logo: 'bukan svg').validate(), isNotNull);
+    expect(
+      draft(logo: '<svg><script>alert(1)</script></svg>').validate(),
+      isNotNull,
+    );
+    expect(draft(logo: '<SVG><SCRIPT src="x"/></SVG>').validate(), isNotNull);
+    expect(draft(logo: '<svg onload="x()"></svg>').validate(), isNotNull);
+    expect(
+      draft(logo: '<svg><rect\nonclick = "x()"/></svg>').validate(),
+      isNotNull,
+    );
+    expect(draft(logo: '<svg>${'a' * 51200}</svg>').validate(), isNotNull);
     expect(CompanyValidators.date(null), isNotNull);
     expect(CompanyValidators.date(DateTime(1899)), isNotNull);
     expect(CompanyValidators.date(DateTime(2101)), isNotNull);
@@ -52,7 +64,7 @@ void main() {
       'createdBy': 'owner',
       'currency': 'IDR',
       'status': 'active',
-      'logoUrl': null,
+      'logoSvg': null,
     };
     final member = {'uid': testUser.uid, 'role': 'finance', 'status': 'active'};
     final result = FirebaseCompanyRepository.parseContext(
@@ -254,7 +266,7 @@ void main() {
       findsOneWidget,
     );
     expect(repo.createCalls, 0);
-    expect(find.text('URL logo (opsional)'), findsOneWidget);
+    expect(find.text('Unggah logo SVG'), findsOneWidget);
   });
 
   testWidgets(
