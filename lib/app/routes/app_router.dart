@@ -136,9 +136,16 @@ GoRouter createAppRouter({
       routes: [
         GoRoute(
           path: '/',
-          builder: (context, state) => DashboardPage(
-            userName: auth.profile?.displayName,
-            company: company.context!,
+          builder: (context, state) => ListenableBuilder(
+            listenable: Listenable.merge([auth, company]),
+            builder: (context, _) {
+              final current = company.context;
+              if (current == null) return const SizedBox.shrink();
+              return DashboardPage(
+                userName: auth.profile?.displayName,
+                company: current,
+              );
+            },
           ),
         ),
         GoRoute(
@@ -184,8 +191,14 @@ GoRouter createAppRouter({
         ),
         GoRoute(
           path: '/settings',
-          builder: (context, state) =>
-              SettingsPage(auth: auth, company: company.context!),
+          builder: (context, state) => ListenableBuilder(
+            listenable: company,
+            builder: (context, _) {
+              final current = company.context;
+              if (current == null) return const SizedBox.shrink();
+              return SettingsPage(auth: auth, company: current);
+            },
+          ),
         ),
       ],
     ),
