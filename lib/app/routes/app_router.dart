@@ -25,17 +25,22 @@ import '../../features/chart_of_accounts/data/firebase_chart_of_accounts_reposit
 import '../../features/chart_of_accounts/presentation/chart_of_accounts_page.dart';
 import '../../features/transactions/domain/transactions_repository.dart';
 import '../../features/transactions/data/firebase_transactions_repository.dart';
+import '../../features/ledger/domain/ledger_repository.dart';
+import '../../features/ledger/data/firebase_ledger_repository.dart';
+import '../../features/ledger/presentation/ledger_page.dart';
 
 GoRouter createAppRouter({
   required AuthController auth,
   required CompanyController company,
   ChartOfAccountsRepository? chartRepository,
   TransactionsRepository? transactionsRepository,
+  LedgerRepository? ledgerRepository,
   String initialLocation = '/',
 }) {
   final coaRepository = chartRepository ?? FirebaseChartOfAccountsRepository();
   final txRepository =
       transactionsRepository ?? FirebaseTransactionsRepository();
+  final glRepository = ledgerRepository ?? FirebaseLedgerRepository();
   Widget companyScoped(Widget Function(CompanyContext current) builder) =>
       ListenableBuilder(
         listenable: company,
@@ -203,8 +208,26 @@ GoRouter createAppRouter({
             builder: (context, state) => const PayablesPage(),
           ),
           GoRoute(
+            path: '/ledger',
+            builder: (context, state) => companyScoped(
+              (current) => LedgerPage(
+                key: ValueKey('gl:${current.company.id}'),
+                company: current,
+                repository: glRepository,
+                chartRepository: coaRepository,
+              ),
+            ),
+          ),
+          GoRoute(
             path: '/accounts',
-            builder: (context, state) => const AccountsPage(),
+            builder: (context, state) => companyScoped(
+              (current) => AccountsPage(
+                key: ValueKey('cash:${current.company.id}'),
+                company: current,
+                repository: glRepository,
+                chartRepository: coaRepository,
+              ),
+            ),
           ),
           GoRoute(
             path: '/categories',

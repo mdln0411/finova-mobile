@@ -20,6 +20,12 @@ enum AppDestination {
     'Tinjau pengajuan transaksi sebelum masuk ke ledger.',
     Icons.fact_check_outlined,
   ),
+  ledger(
+    '/ledger',
+    'Buku Besar',
+    'Mutasi dan saldo per akun dari transaksi yang disetujui.',
+    Icons.menu_book_outlined,
+  ),
   receivables(
     '/receivables',
     'Piutang',

@@ -76,6 +76,10 @@ void main() {
               ? 'Belum ada transaksi.'
               : destination == AppDestination.approvals
               ? 'Tidak ada transaksi yang menunggu persetujuan.'
+              : destination == AppDestination.ledger
+              ? 'Kategori akun belum tersedia. Minta Manager menyiapkannya.'
+              : destination == AppDestination.accounts
+              ? 'Akun Kas/Bank belum tersedia. Minta Manager menyiapkan kategori akun.'
               : 'Ruang untuk langkah berikutnya',
         ),
         findsOneWidget,
