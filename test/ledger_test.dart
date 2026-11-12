@@ -262,7 +262,7 @@ void main() {
     });
   });
 
-  test('cashBankAccounts: aset posting 11xx/12xx termasuk nonaktif', () {
+  test('cashBankAccounts = kriteria isCashAccount di form transaksi', () {
     const inactive = ChartAccount(
       code: '1150',
       name: 'Kas kecil lama',
@@ -272,8 +272,14 @@ void main() {
       parentCode: '1000',
       isActive: false,
     );
-    final result = cashBankAccounts([...defaultChartOfAccounts, inactive]);
-    expect(result.map((a) => a.code), ['1100', '1150', '1200']);
+    final all = [...defaultChartOfAccounts, inactive];
+    final result = cashBankAccounts(all);
+    // 1200 = Bank; 1300 = Piutang usaha (bukan Kas/Bank).
+    expect(result.map((a) => a.code), ['1100', '1200']);
+    expect(
+      result.map((a) => a.code).toSet(),
+      all.where(isCashAccount).map((a) => a.code).toSet(),
+    );
   });
 
   test(

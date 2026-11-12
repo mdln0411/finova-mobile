@@ -155,15 +155,8 @@ abstract final class LedgerCalculator {
   }
 }
 
-/// Akun Kas/Bank (aset posting 11xx/12xx), termasuk yang nonaktif agar
-/// saldo historisnya tetap terhitung dalam total.
+/// Akun Kas/Bank untuk halaman saldo: kriteria sama persis dengan pilihan
+/// `cashAccountId` di form transaksi ([isCashAccount]), diurutkan per kode.
 List<ChartAccount> cashBankAccounts(Iterable<ChartAccount> accounts) =>
-    accounts
-        .where(
-          (a) =>
-              a.type == AccountType.asset &&
-              a.isPosting &&
-              RegExp(r'^1[12][0-9]{2}$').hasMatch(a.code),
-        )
-        .toList()
+    accounts.where(isCashAccount).toList()
       ..sort((a, b) => a.code.compareTo(b.code));
