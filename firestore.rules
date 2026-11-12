@@ -1,0 +1,417 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function validProfile(uid) {
+      let data = request.resource.data;
+      return data.keys().hasAll([
+          'uid', 'displayName', 'email', 'photoUrl', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'photoUrl', 'createdAt', 'updatedAt',
+          'phoneNumber', 'profileCompleted'
+        ])
+        && data.uid is string && data.uid == uid
+        && data.displayName is string
+        && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.get('profileCompleted', false) is bool
+        && (!data.get('profileCompleted', false) || (
+          data.displayName.size() >= 2
+          && data.displayName.matches('.*[^[:space:]].*[^[:space:]].*')
+        ))
+        && (data.get('phoneNumber', null) == null || (
+          data.phoneNumber is string
+          && data.phoneNumber.matches('^[+]?[0-9]{7,15}$')
+        ))
+        && data.email is string && data.email.size() <= 320
+        && data.email == request.auth.token.email
+        && (data.photoUrl == null || (
+          data.photoUrl is string && data.photoUrl.size() <= 2048
+          && data.photoUrl.matches('https://.*')
+        ))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    match /users/{uid} {
+      // Profil sendiri dapat dibaca langsung; listing collection ditolak.
+      allow get: if isOwner(uid);
+      allow list: if false;
+      allow create: if isOwner(uid) && validProfile(uid)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isOwner(uid) && validProfile(uid)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (!resource.data.get('profileCompleted', false)
+          || request.resource.data.get('profileCompleted', false) == true)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['displayName', 'email', 'photoUrl', 'updatedAt',
+            'phoneNumber', 'profileCompleted']);
+      allow delete: if false;
+    }
+
+    function profileReady() {
+      return request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.profileCompleted == true;
+    }
+
+    function activeMember(companyId) {
+      return profileReady()
+        && get(/databases/$(database)/documents/company_access/$(request.auth.uid)).data.companyId == companyId
+        && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.status == 'active'
+        && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['manager', 'finance'];
+    }
+
+    function manager(companyId) {
+      return activeMember(companyId)
+        && get(/databases/$(database)/documents/companies/$(companyId)).data.status == 'active'
+        && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role == 'manager';
+    }
+
+    // Logo SVG inline: null atau teks <= 50 KB tanpa <script dan atribut on*.
+    // size() string dihitung per karakter; client juga membatasi 50 KB UTF-8.
+    function validLogoSvg(svg) {
+      return svg == null || (svg is string
+        && svg.size() >= 1 && svg.size() <= 51200
+        && svg.lower().matches('(?s).*<svg.*')
+        && !svg.lower().matches('(?s).*<script.*')
+        && !svg.lower().matches('(?s).*[[:space:]/]on[a-z]+[[:space:]]*=.*'));
+    }
+
+    function validCompany() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['name', 'businessType', 'bookkeepingStartDate',
+          'address', 'phoneNumber', 'email', 'logoSvg', 'currency', 'createdBy',
+          'status', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['name', 'businessType', 'bookkeepingStartDate',
+          'address', 'phoneNumber', 'email', 'logoSvg', 'currency', 'createdBy',
+          'status', 'createdAt', 'updatedAt'])
+        && d.name is string && d.name.size() >= 2 && d.name.size() <= 100
+        && d.name.matches('.*[^[:space:]].*[^[:space:]].*')
+        && d.businessType in ['Dagang', 'Jasa', 'Manufaktur', 'Lainnya']
+        && d.bookkeepingStartDate is timestamp
+        && d.bookkeepingStartDate >= timestamp.date(1900, 1, 1)
+        && d.bookkeepingStartDate < timestamp.date(2101, 1, 1)
+        && d.address is string && d.address.size() <= 500
+        && d.phoneNumber is string && (d.phoneNumber == '' || d.phoneNumber.matches('^[+]?[0-9]{7,15}$'))
+        && d.email is string && d.email.size() <= 320
+        && (d.email == '' || d.email.matches('^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'))
+        && validLogoSvg(d.logoSvg)
+        && d.currency == 'IDR' && d.status == 'active'
+        && d.createdBy == request.auth.uid
+        && d.createdAt == request.time && d.updatedAt == request.time;
+    }
+
+    // Referensi satu perusahaan per akun, terpisah dari profil yang dapat diedit.
+    // Link tidak bisa dipindah/dihapus oleh client.
+    match /company_access/{uid} {
+      allow get: if isOwner(uid);
+      allow list, update, delete: if false;
+      allow create: if isOwner(uid) && profileReady()
+        && request.resource.data.keys().hasAll(['uid', 'companyId', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['uid', 'companyId', 'createdAt'])
+        && request.resource.data.uid == uid
+        && request.resource.data.companyId is string
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.status == 'active'
+        && getAfter(/databases/$(database)/documents/companies/$(request.resource.data.companyId)/members/$(uid)).data.uid == uid
+        && getAfter(/databases/$(database)/documents/companies/$(request.resource.data.companyId)/members/$(uid)).data.status == 'active';
+    }
+
+    match /companies/{companyId} {
+      allow get: if activeMember(companyId) && resource.data.status == 'active';
+      allow list, delete: if false;
+      // Hanya Manager aktif yang dapat mengganti/menghapus logo; field lain tetap.
+      allow update: if manager(companyId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['logoSvg', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && validLogoSvg(request.resource.data.get('logoSvg', null));
+      // ID creator deterministik; seluruh bootstrap harus dalam commit yang sama.
+      allow create: if profileReady() && companyId == request.auth.uid
+        && !exists(/databases/$(database)/documents/company_access/$(request.auth.uid))
+        && validCompany()
+        && getAfter(/databases/$(database)/documents/company_access/$(request.auth.uid)).data.companyId == companyId
+        && getAfter(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role == 'manager'
+        && getAfter(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.status == 'active';
+
+      match /members/{uid} {
+        allow get: if isOwner(uid) || manager(companyId);
+        allow list: if manager(companyId);
+        // Offboarding: Manager menonaktifkan/mengaktifkan kembali Finance lain.
+        // Dokumen tidak dihapus; role, uid dan link akses tetap.
+        // activeMember() mensyaratkan status 'active', jadi status 'inactive'
+        // langsung memutus akses ke seluruh data perusahaan.
+        allow update: if manager(companyId) && uid != request.auth.uid
+          && resource.data.role == 'finance'
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'statusChangedBy', 'statusChangedAt'])
+          && request.resource.data.status in ['active', 'inactive']
+          && request.resource.data.status != resource.data.status
+          && request.resource.data.statusChangedBy == request.auth.uid
+          && request.resource.data.statusChangedAt == request.time;
+        allow delete: if false;
+        allow create: if isOwner(uid) && profileReady()
+          && !exists(/databases/$(database)/documents/company_access/$(uid))
+          && request.resource.data.keys().hasAll(['uid', 'role', 'status', 'joinedAt'])
+          && request.resource.data.uid == uid
+          && request.resource.data.status == 'active'
+          && request.resource.data.joinedAt == request.time
+          && getAfter(/databases/$(database)/documents/company_access/$(uid)).data.companyId == companyId
+          && ((bootstrapManager(companyId, uid)) || (invitedFinance(companyId, uid)));
+      }
+
+      // Chart of Accounts terisolasi per perusahaan. Finance hanya membaca;
+      // Manager menyiapkan akun. Edit/hapus belum tersedia agar identitas akun stabil.
+      match /chart_of_accounts/{code} {
+        allow get, list: if activeMember(companyId)
+          && get(/databases/$(database)/documents/companies/$(companyId)).data.status == 'active';
+        allow create: if manager(companyId) && validChartAccount(companyId, code);
+        allow update, delete: if false;
+      }
+
+      // Piutang mengikuti alur persetujuan yang sama dengan transaksi.
+      // Jurnal Piutang/Pendapatan dihitung client dari piutang approved;
+      // tidak ada transaksi pengakuan terpisah agar tidak tercatat ganda.
+      match /receivables/{receivableId} {
+        allow get, list: if activeCompany(companyId);
+        allow create: if activeCompany(companyId)
+          && validReceivableBody(companyId)
+          && request.resource.data.status == 'pending'
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.approvedBy == null
+          && request.resource.data.approvedAt == null
+          && request.resource.data.rejectReason == null;
+        allow update: if activeCompany(companyId)
+          && resource.data.status == 'pending'
+          && ((resource.data.createdBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'customerName', 'number', 'amount', 'revenueAccountId',
+                'issueDate', 'dueDate', 'description'])
+              && validReceivableBody(companyId))
+            || (manager(companyId) && validDecision()));
+        allow delete: if activeCompany(companyId)
+          && resource.data.status == 'pending'
+          && resource.data.createdBy == request.auth.uid;
+      }
+
+      // Transaksi pemasukan/pengeluaran. Status awal selalu pending; hanya
+      // pembuat yang dapat edit/hapus selama pending; hanya Manager yang
+      // memutuskan. Transaksi approved/rejected immutable.
+      match /transactions/{txId} {
+        allow get, list: if activeCompany(companyId);
+        allow create: if activeCompany(companyId)
+          && validTransactionBody(companyId)
+          && request.resource.data.keys().hasAll(['type', 'amount', 'date',
+            'description', 'cashAccountId', 'categoryAccountId', 'status',
+            'createdBy', 'createdAt', 'approvedBy', 'approvedAt', 'rejectReason'])
+          && request.resource.data.status == 'pending'
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.approvedBy == null
+          && request.resource.data.approvedAt == null
+          && request.resource.data.rejectReason == null;
+        allow update: if activeCompany(companyId)
+          && resource.data.status == 'pending'
+          && ((resource.data.createdBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'type', 'amount', 'date', 'description', 'cashAccountId',
+                'categoryAccountId'])
+              && validTransactionBody(companyId))
+            || (manager(companyId) && validDecision()));
+        allow delete: if activeCompany(companyId)
+          && resource.data.status == 'pending'
+          && resource.data.createdBy == request.auth.uid;
+      }
+    }
+
+    function activeCompany(companyId) {
+      return activeMember(companyId)
+        && get(/databases/$(database)/documents/companies/$(companyId)).data.status == 'active';
+    }
+
+    function coaAccount(companyId, code) {
+      return get(/databases/$(database)/documents/companies/$(companyId)/chart_of_accounts/$(code)).data;
+    }
+
+    // Field yang dapat diisi pembuat. Nominal integer Rupiah > 0; tanggal
+    // tidak sebelum awal pembukuan dan tidak di masa depan (toleransi zona waktu).
+    function validTransactionBody(companyId) {
+      let d = request.resource.data;
+      let cash = coaAccount(companyId, d.cashAccountId);
+      let category = coaAccount(companyId, d.categoryAccountId);
+      return d.keys().hasOnly(['type', 'amount', 'date', 'description',
+          'cashAccountId', 'categoryAccountId', 'status', 'createdBy',
+          'createdAt', 'approvedBy', 'approvedAt', 'rejectReason', 'receivableId'])
+        && d.type in ['income', 'expense']
+        && d.amount is int && d.amount > 0 && d.amount <= 999999999999999
+        && d.date is timestamp
+        && d.date >= get(/databases/$(database)/documents/companies/$(companyId)).data.bookkeepingStartDate
+        && d.date <= request.time + duration.value(1, 'd')
+        && d.description is string
+        && d.description.size() >= 1 && d.description.size() <= 200
+        && d.description.matches('(?s).*[^[:space:]].*')
+        && d.cashAccountId is string && d.cashAccountId.matches('^1[12][0-9]{2}$')
+        && cash.type == 'asset' && cash.isPosting == true && cash.isActive == true
+        && d.categoryAccountId is string
+        && category.isPosting == true && category.isActive == true
+        && (d.get('receivableId', null) == null
+          ? (d.categoryAccountId.matches('^[45][0-9]{3}$')
+              && category.type == (d.type == 'income' ? 'revenue' : 'expense'))
+          : (d.receivableId is string && d.receivableId.size() > 0
+              && d.type == 'income' && d.categoryAccountId == '1300'
+              && category.type == 'asset'
+              && get(/databases/$(database)/documents/companies/$(companyId)/receivables/$(d.receivableId)).data.status == 'approved'));
+    }
+
+    function validReceivableBody(companyId) {
+      let d = request.resource.data;
+      let revenue = coaAccount(companyId, d.revenueAccountId);
+      let startDate = get(/databases/$(database)/documents/companies/$(companyId)).data.bookkeepingStartDate;
+      return d.keys().hasAll(['customerName', 'number', 'amount', 'issueDate',
+          'dueDate', 'description', 'revenueAccountId', 'status', 'createdBy',
+          'createdAt', 'approvedBy', 'approvedAt', 'rejectReason'])
+        && d.keys().hasOnly(['customerName', 'number', 'amount', 'issueDate',
+          'dueDate', 'description', 'revenueAccountId', 'status', 'createdBy',
+          'createdAt', 'approvedBy', 'approvedAt', 'rejectReason'])
+        && d.customerName is string && d.customerName.size() >= 2
+        && d.customerName.size() <= 100
+        && d.customerName.matches('(?s).*[^[:space:]].*')
+        && d.number is string && d.number.size() >= 1 && d.number.size() <= 50
+        && d.number.matches('(?s).*[^[:space:]].*')
+        && d.amount is int && d.amount > 0 && d.amount <= 999999999999999
+        && d.revenueAccountId is string
+        && d.revenueAccountId.matches('^4[0-9]{3}$')
+        && revenue.type == 'revenue' && revenue.isPosting == true
+        && revenue.isActive == true
+        && d.issueDate is timestamp
+        && d.issueDate >= startDate
+        && d.issueDate <= request.time + duration.value(1, 'd')
+        && d.dueDate is timestamp
+        && d.dueDate >= d.issueDate
+        && d.dueDate < timestamp.date(2101, 1, 1)
+        && d.description is string
+        && d.description.size() >= 1 && d.description.size() <= 200
+        && d.description.matches('(?s).*[^[:space:]].*');
+    }
+
+    // Keputusan Manager: approvedBy/approvedAt mencatat pengambil keputusan.
+    function validDecision() {
+      let d = request.resource.data;
+      return d.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'approvedBy', 'approvedAt', 'rejectReason'])
+        && d.approvedBy == request.auth.uid
+        && d.approvedAt == request.time
+        && ((d.status == 'approved' && d.rejectReason == null)
+          || (d.status == 'rejected' && d.rejectReason is string
+            && d.rejectReason.size() >= 3 && d.rejectReason.size() <= 500
+            && d.rejectReason.matches('(?s).*[^[:space:]].*')));
+    }
+
+    function validChartAccount(companyId, code) {
+      let d = request.resource.data;
+      let prefix = d.type == 'asset' ? '1' : d.type == 'liability' ? '2'
+        : d.type == 'equity' ? '3' : d.type == 'revenue' ? '4' : '5';
+      let groupCode = prefix + '000';
+      return d.keys().hasAll(['code', 'name', 'type', 'normalBalance', 'parentCode',
+          'isPosting', 'isActive', 'createdBy', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['code', 'name', 'type', 'normalBalance', 'parentCode',
+          'isPosting', 'isActive', 'createdBy', 'createdAt', 'updatedAt'])
+        && d.code == code && code.matches('^' + prefix + '[0-9]{3}$')
+        && d.type in ['asset', 'liability', 'equity', 'revenue', 'expense']
+        && d.normalBalance == (d.type in ['asset', 'expense'] ? 'debit' : 'credit')
+        && d.name is string && d.name.size() >= 2 && d.name.size() <= 100
+        && d.name.matches('^[^[:space:]]([^\\r\\n\\t]*[^[:space:]])$')
+        && d.isPosting is bool && d.isActive == true
+        && d.createdBy == request.auth.uid
+        && d.createdAt == request.time && d.updatedAt == request.time
+        && ((code == groupCode && d.parentCode == null && !d.isPosting)
+          || (code != groupCode && d.isPosting && d.parentCode == groupCode
+            && getAfter(/databases/$(database)/documents/companies/$(companyId)/chart_of_accounts/$(groupCode)).data.type == d.type
+            && getAfter(/databases/$(database)/documents/companies/$(companyId)/chart_of_accounts/$(groupCode)).data.isPosting == false
+            && getAfter(/databases/$(database)/documents/companies/$(companyId)/chart_of_accounts/$(groupCode)).data.isActive == true));
+    }
+
+    function bootstrapManager(companyId, uid) {
+      return request.resource.data.keys().hasOnly(['uid', 'role', 'status', 'joinedAt'])
+        && request.resource.data.role == 'manager' && companyId == uid
+        && !exists(/databases/$(database)/documents/companies/$(companyId))
+        && getAfter(/databases/$(database)/documents/companies/$(companyId)).data.createdBy == uid
+        && getAfter(/databases/$(database)/documents/companies/$(companyId)).data.status == 'active';
+    }
+
+    function verifiedRecipient(data) {
+      return request.auth != null && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() == data.email;
+    }
+
+    function invitedFinance(companyId, uid) {
+      let id = request.resource.data.invitationId;
+      let before = get(/databases/$(database)/documents/company_invitations/$(id)).data;
+      let after = getAfter(/databases/$(database)/documents/company_invitations/$(id)).data;
+      return request.resource.data.keys().hasOnly(['uid', 'role', 'status', 'joinedAt', 'invitationId'])
+        && request.resource.data.role == 'finance'
+        && id is string && before.companyId == companyId && before.role == 'finance'
+        && before.status == 'pending' && verifiedRecipient(before)
+        && after.status == 'accepted' && after.acceptedBy == uid
+        && get(/databases/$(database)/documents/companies/$(companyId)).data.status == 'active';
+    }
+
+    function validInvitation() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['companyId', 'companyName', 'email', 'role',
+          'status', 'createdBy', 'createdAt', 'updatedAt', 'acceptedBy'])
+        && d.keys().hasOnly(['companyId', 'companyName', 'email', 'role',
+          'status', 'createdBy', 'createdAt', 'updatedAt', 'acceptedBy'])
+        && d.companyId is string && d.companyName is string
+        && d.email is string && d.email.size() <= 320 && d.email == d.email.lower()
+        && d.email.matches('^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$')
+        && d.email != request.auth.token.email.lower()
+        && d.role == 'finance' && d.status == 'pending' && d.acceptedBy == null
+        && d.createdBy == request.auth.uid
+        && d.createdAt == request.time && d.updatedAt == request.time
+        && d.companyName == get(/databases/$(database)/documents/companies/$(d.companyId)).data.name;
+    }
+
+    // ID undangan deterministik dan terikat ke perusahaan pembuat:
+    // '<companyId>_<sha256(email) hex>'. Manager lain tidak dapat menyerobot
+    // ID milik perusahaan lain karena companyId wajib sama dengan Manager pembuat.
+    function invitationIdFor(companyId, email) {
+      return companyId + '_' + hashing.sha256(email).toHexString().lower();
+    }
+
+    match /company_invitations/{invitationId} {
+      // Missing get untuk transaksi idempotensi; tidak membuka dokumen yang ada.
+      allow get: if request.auth != null && (resource == null
+        || manager(resource.data.companyId) || verifiedRecipient(resource.data));
+      allow list: if manager(resource.data.companyId) || verifiedRecipient(resource.data);
+      allow create: if profileReady() && validInvitation() && manager(request.resource.data.companyId)
+        && invitationId == invitationIdFor(request.resource.data.companyId, request.resource.data.email);
+      allow delete: if false;
+      allow update: if request.auth != null && resource.data.status == 'pending'
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'acceptedBy'])
+        && ((manager(resource.data.companyId)
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.acceptedBy == null)
+          || (verifiedRecipient(resource.data) && profileReady()
+            && ((request.resource.data.status == 'rejected' && request.resource.data.acceptedBy == null)
+              || (request.resource.data.status == 'accepted'
+                && request.resource.data.acceptedBy == request.auth.uid
+                && !exists(/databases/$(database)/documents/company_access/$(request.auth.uid))
+                && getAfter(/databases/$(database)/documents/company_access/$(request.auth.uid)).data.companyId == resource.data.companyId
+                && getAfter(/databases/$(database)/documents/companies/$(resource.data.companyId)/members/$(request.auth.uid)).data.role == 'finance'
+                && getAfter(/databases/$(database)/documents/companies/$(resource.data.companyId)/members/$(request.auth.uid)).data.invitationId == invitationId))));
+    }
+
+    // Ledger dan collection lain tetap tertutup.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

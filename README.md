@@ -76,3 +76,5 @@ Memanfaatkan teknologi *Optical Character Recognition* (OCR) untuk mengekstraksi
 ## 7. Batasan Pengembangan
 
 Finova berfokus pada pengelolaan keuangan operasional perusahaan skala kecil dan menengah, bukan sistem ERP secara menyeluruh. Pengembangan tidak mencakup integrasi perbankan langsung, pembayaran otomatis, pengelolaan pajak yang kompleks, maupun sistem penggajian lengkap.
+
+Jalankan flutterfire configure sebelum build.

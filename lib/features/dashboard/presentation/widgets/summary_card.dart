@@ -15,7 +15,7 @@ class SummaryCard extends StatelessWidget {
     this.onTap,
   });
   final String label;
-  final int amount;
+  final int? amount;
   final String caption;
   final IconData icon;
   final Color accent;
@@ -60,7 +60,7 @@ class SummaryCard extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                formatRupiah(amount),
+                amount == null ? '—' : formatRupiah(amount!),
                 style: Theme.of(context).textTheme.titleMedium
                     ?.copyWith(fontWeight: FontWeight.w800),
               ),

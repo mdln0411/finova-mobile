@@ -32,6 +32,27 @@ abstract final class AppTheme {
         color: AppColors.border,
         thickness: 1,
       ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.surface,
+        errorMaxLines: 3,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 18,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+        ),
+      ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
