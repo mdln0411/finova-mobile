@@ -147,7 +147,7 @@ class _CashAccountTile extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               Text(
-                account.code,
+                account.isActive ? account.code : '${account.code} · Nonaktif',
                 style: const TextStyle(color: AppColors.muted, fontSize: 12),
               ),
               const SizedBox(height: 4),

@@ -262,7 +262,7 @@ void main() {
     });
   });
 
-  test('cashBankAccounts = kriteria isCashAccount di form transaksi', () {
+  test('cashBankAccounts: klasifikasi 11xx/12xx termasuk nonaktif', () {
     const inactive = ChartAccount(
       code: '1150',
       name: 'Kas kecil lama',
@@ -275,10 +275,12 @@ void main() {
     final all = [...defaultChartOfAccounts, inactive];
     final result = cashBankAccounts(all);
     // 1200 = Bank; 1300 = Piutang usaha (bukan Kas/Bank).
-    expect(result.map((a) => a.code), ['1100', '1200']);
+    expect(result.map((a) => a.code), ['1100', '1150', '1200']);
+    expect(all.where(isCashBankAccount).length, 3);
+    // Form transaksi hanya menawarkan yang aktif.
     expect(
-      result.map((a) => a.code).toSet(),
-      all.where(isCashAccount).map((a) => a.code).toSet(),
+      all.where((a) => isCashBankAccount(a) && a.isActive).map((a) => a.code),
+      ['1100', '1200'],
     );
   });
 
@@ -351,6 +353,41 @@ void main() {
       expect(find.text('Rp 2.500.000'), findsOneWidget);
       expect(find.text('Kas'), findsOneWidget);
       expect(find.text('Bank'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Kas & Bank: akun nonaktif berlabel dan tetap masuk total', (
+      tester,
+    ) async {
+      chart.accounts = [
+        ...defaultChartOfAccounts,
+        const ChartAccount(
+          code: '1150',
+          name: 'Kas kecil lama',
+          type: AccountType.asset,
+          normalBalance: BalanceSide.debit,
+          isPosting: true,
+          parentCode: '1000',
+          isActive: false,
+        ),
+      ];
+      repo.items = [
+        ...repo.items,
+        tx('old', type: TransactionType.income, amount: 400000, cash: '1150'),
+      ];
+      await tester.pumpWidget(
+        host(
+          AccountsPage(
+            company: testCompany,
+            repository: repo,
+            chartRepository: chart,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('1150 · Nonaktif'), findsOneWidget);
+      expect(find.text('Rp 400.000'), findsOneWidget);
+      expect(find.text('Rp 3.650.000'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

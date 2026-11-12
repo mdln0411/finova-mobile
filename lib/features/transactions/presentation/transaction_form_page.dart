@@ -42,7 +42,7 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
   String? _error;
 
   List<ChartAccount> get _cashAccounts =>
-      widget.accounts.where(isCashAccount).toList();
+      widget.accounts.where((a) => isCashBankAccount(a) && a.isActive).toList();
   List<ChartAccount> get _categories => widget.accounts
       .where((account) => isCategoryAccount(account, _type))
       .toList();

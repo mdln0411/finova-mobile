@@ -155,8 +155,8 @@ abstract final class LedgerCalculator {
   }
 }
 
-/// Akun Kas/Bank untuk halaman saldo: kriteria sama persis dengan pilihan
-/// `cashAccountId` di form transaksi ([isCashAccount]), diurutkan per kode.
+/// Akun Kas/Bank ([isCashBankAccount]) termasuk yang nonaktif, agar saldo
+/// historisnya tetap terhitung dalam total. Diurutkan per kode.
 List<ChartAccount> cashBankAccounts(Iterable<ChartAccount> accounts) =>
-    accounts.where(isCashAccount).toList()
+    accounts.where(isCashBankAccount).toList()
       ..sort((a, b) => a.code.compareTo(b.code));

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:finova/features/chart_of_accounts/domain/chart_account.dart';
 import 'package:finova/app/theme/app_theme.dart';
 import 'package:finova/features/approvals/presentation/approvals_page.dart';
 import 'package:finova/features/chart_of_accounts/domain/default_chart_of_accounts.dart';
@@ -56,6 +57,26 @@ void main() {
     expect(check(draft(description: '   ')), contains('Keterangan'));
     expect(check(draft(description: 'a' * 201)), contains('maksimal'));
     expect(check(draft(cash: '1300')), contains('Kas/Bank'));
+    expect(
+      draft(cash: '1200').validate(
+        accounts: [
+          for (final a in defaultChartOfAccounts)
+            a.code == '1200'
+                ? ChartAccount(
+                    code: a.code,
+                    name: a.name,
+                    type: a.type,
+                    normalBalance: a.normalBalance,
+                    isPosting: a.isPosting,
+                    parentCode: a.parentCode,
+                    isActive: false,
+                  )
+                : a,
+        ],
+        now: DateTime.utc(2026, 6, 1),
+      ),
+      contains('Kas/Bank'),
+    );
     expect(check(draft(cash: '1000')), contains('Kas/Bank'));
     expect(check(draft(category: '4100')), contains('Beban'));
     expect(check(draft(category: '5000')), contains('Beban'));

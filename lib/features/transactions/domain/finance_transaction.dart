@@ -28,11 +28,11 @@ abstract final class TransactionLimits {
   static const maxRejectReason = 500;
 }
 
-/// Akun Kas/Bank: akun posting aset aktif dengan kode 11xx atau 12xx.
-bool isCashAccount(ChartAccount account) =>
+/// Klasifikasi Kas/Bank: akun posting aset dengan kode 11xx atau 12xx.
+/// Tidak memeriksa status aktif; form transaksi menambahkan `isActive`.
+bool isCashBankAccount(ChartAccount account) =>
     account.type == AccountType.asset &&
     account.isPosting &&
-    account.isActive &&
     RegExp(r'^1[12][0-9]{2}$').hasMatch(account.code);
 
 bool isCategoryAccount(ChartAccount account, TransactionType type) =>
@@ -126,7 +126,9 @@ class TransactionDraft {
       return 'Keterangan maksimal ${TransactionLimits.maxDescription} karakter.';
     }
     final cash = accounts.where((a) => a.code == cashAccountId).firstOrNull;
-    if (cash == null || !isCashAccount(cash)) return 'Pilih akun Kas/Bank.';
+    if (cash == null || !isCashBankAccount(cash) || !cash.isActive) {
+      return 'Pilih akun Kas/Bank.';
+    }
     final category = accounts
         .where((a) => a.code == categoryAccountId)
         .firstOrNull;
