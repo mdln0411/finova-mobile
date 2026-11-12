@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { after, before, beforeEach, test } from 'node:test';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, collection,
-  serverTimestamp, Timestamp } from 'firebase/firestore';
+  serverTimestamp, Timestamp, writeBatch } from 'firebase/firestore';
 
 // Project demo khusus lokal; tidak pernah memakai finova-8592e.
 let env;
@@ -62,6 +62,15 @@ async function seedTx(id, data) {
   await env.withSecurityRulesDisabled(async (ctx) => setDoc(
     txRef(ctx.firestore(), id), { ...data, createdAt: Timestamp.now() }));
 }
+async function seedReceivable(id, data) {
+  await env.withSecurityRulesDisabled(async (ctx) => setDoc(
+    doc(ctx.firestore(), 'companies', companyId, 'receivables', id),
+    { customerName: 'Customer Finova', number: 'INV-001', amount: 150000,
+      revenueAccountId: '4100',
+      dueDate: day('2026-03-01'), description: '', status: 'approved',
+      createdBy: 'finance', createdAt: Timestamp.now(), approvedBy: 'manager',
+      approvedAt: Timestamp.now(), rejectReason: null, ...data }));
+}
 
 before(async () => {
   env = await initializeTestEnvironment({ projectId, firestore: {
@@ -105,6 +114,72 @@ test('TX: validasi nominal, tanggal, keterangan, tipe dan akun COA', async () =>
     await assertFails(setDoc(txRef(store, 'bad'), tx('finance', changes)));
   }
   await assertSucceeds(setDoc(txRef(store, 'ok'), tx('finance', { date: day('2026-01-01') })));
+});
+
+test('TX: pembayaran piutang memakai akun Piutang dan hanya untuk piutang approved', async () => {
+  await seedReceivable('approved', {});
+  await seedReceivable('pending', { status: 'pending', approvedBy: null, approvedAt: null });
+  const payment = tx('finance', {
+    type: 'income',
+    categoryAccountId: '1300',
+    cashAccountId: '1100',
+    receivableId: 'approved',
+  });
+  await assertSucceeds(setDoc(txRef(db('finance'), 'payment'), payment));
+  await assertFails(setDoc(txRef(db('finance'), 'without-link'), tx('finance', {
+    type: 'income',
+    categoryAccountId: '1300',
+    cashAccountId: '1100',
+  })));
+  await assertFails(setDoc(txRef(db('finance'), 'pending-link'), {
+    ...payment,
+    receivableId: 'pending',
+  }));
+  await assertFails(setDoc(txRef(db('finance'), 'missing-link'), {
+    ...payment,
+    receivableId: 'missing',
+  }));
+  await assertFails(setDoc(txRef(db('finance'), 'wrong-type'), {
+    ...payment,
+    type: 'expense',
+  }));
+});
+
+test('TX: pengakuan Piutang tidak dicatat sebagai transaksi terpisah', async () => {
+  await seedReceivable('recognition', {
+    status: 'pending',
+    approvedBy: null,
+    approvedAt: null,
+  });
+  const store = db('manager');
+  const batch = writeBatch(store);
+  batch.update(doc(store, 'companies', companyId, 'receivables', 'recognition'), {
+    status: 'approved',
+    approvedBy: 'manager',
+    approvedAt: serverTimestamp(),
+    rejectReason: null,
+  });
+  batch.set(txRef(store, 'receivable-recognition'), tx('manager', {
+    type: 'income',
+    amount: 150000,
+    date: serverTimestamp(),
+    description: 'Pengakuan piutang INV-001',
+    cashAccountId: '1300',
+    categoryAccountId: '4100',
+    receivableId: 'recognition',
+    status: 'approved',
+    createdBy: 'manager',
+    createdAt: serverTimestamp(),
+    approvedBy: 'manager',
+    approvedAt: serverTimestamp(),
+    rejectReason: null,
+  }));
+  await assertFails(batch.commit());
+  await assertFails(setDoc(txRef(store, 'debit-piutang'), tx('manager', {
+    type: 'income',
+    cashAccountId: '1300',
+    categoryAccountId: '4100',
+  })));
 });
 
 test('TX: anonim, perusahaan lain dan membership nonaktif ditolak', async () => {

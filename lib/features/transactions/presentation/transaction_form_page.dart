@@ -41,10 +41,19 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
   late String? _category = widget.existing?.categoryAccountId;
   String? _error;
 
+  bool get _isReceivablePayment => widget.existing?.receivableId != null;
+
   List<ChartAccount> get _cashAccounts =>
       widget.accounts.where((a) => isCashBankAccount(a) && a.isActive).toList();
   List<ChartAccount> get _categories => widget.accounts
-      .where((account) => isCategoryAccount(account, _type))
+      .where(
+        (account) => _isReceivablePayment
+            ? account.code == '1300' &&
+                  account.type == AccountType.asset &&
+                  account.isPosting &&
+                  account.isActive
+            : isCategoryAccount(account, _type),
+      )
       .toList();
 
   @override
@@ -74,6 +83,7 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
       description: _description.text,
       cashAccountId: _cash ?? '',
       categoryAccountId: _category ?? '',
+      receivableId: widget.existing?.receivableId,
     );
     final error = draft.validate(
       accounts: widget.accounts,
@@ -117,7 +127,7 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
                       ButtonSegment(value: type, label: Text(type.label)),
                   ],
                   selected: {_type},
-                  onSelectionChanged: busy
+                  onSelectionChanged: busy || _isReceivablePayment
                       ? null
                       : (value) => setState(() {
                           _type = value.first;
@@ -179,7 +189,9 @@ class _TransactionFormPageState extends State<TransactionFormPage> {
                       : null,
                   isExpanded: true,
                   decoration: InputDecoration(
-                    labelText: 'Kategori (${_type.categoryType.label})',
+                    labelText: _isReceivablePayment
+                        ? 'Kategori (Piutang)'
+                        : 'Kategori (${_type.categoryType.label})',
                   ),
                   items: [
                     for (final account in _categories)
