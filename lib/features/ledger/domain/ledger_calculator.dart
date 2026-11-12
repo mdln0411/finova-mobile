@@ -1,17 +1,48 @@
 import '../../chart_of_accounts/domain/chart_account.dart';
+import '../../chart_of_accounts/domain/default_chart_of_accounts.dart';
+import '../../payables/domain/payable.dart';
+import '../../receivables/domain/receivable.dart';
+import '../../transactions/domain/bill.dart';
 import '../../transactions/domain/finance_transaction.dart';
+
+/// Asal jurnal. ID sumber hanya unik di dalam jenisnya.
+enum JournalSource { transaction, receivable, payable }
+
+/// Satu jurnal double-entry dari sumber yang sudah disetujui.
+class JournalLine {
+  const JournalLine({
+    required this.source,
+    required this.sourceId,
+    required this.date,
+    required this.createdAt,
+    required this.description,
+    required this.debitAccountId,
+    required this.creditAccountId,
+    required this.amount,
+  });
+  final JournalSource source;
+  final String sourceId;
+  final DateTime date;
+  final DateTime createdAt;
+  final String description;
+  final String debitAccountId;
+  final String creditAccountId;
+  final int amount;
+}
 
 /// Satu baris buku besar. Nominal integer Rupiah.
 class LedgerEntry {
   const LedgerEntry({
-    required this.transactionId,
+    required this.source,
+    required this.sourceId,
     required this.date,
     required this.description,
     required this.debit,
     required this.credit,
     required this.balance,
   });
-  final String transactionId;
+  final JournalSource source;
+  final String sourceId;
   final DateTime date;
   final String description;
   final int debit;
@@ -30,7 +61,7 @@ class AccountLedger {
   });
   final ChartAccount account;
 
-  /// Saldo dari transaksi sebelum awal rentang (0 tanpa filter awal).
+  /// Saldo dari jurnal sebelum awal rentang (0 tanpa filter awal).
   final int openingBalance;
   final List<LedgerEntry> entries;
 
@@ -40,12 +71,14 @@ class AccountLedger {
       entries.isEmpty ? openingBalance : entries.last.balance;
 }
 
-/// Menghitung ledger dari transaksi tanpa menyimpannya (pure Dart).
-/// Hanya transaksi `approved` yang diproses; status lain diabaikan.
+/// Menghitung ledger dari sumber yang disetujui tanpa menyimpannya (pure Dart).
+/// Sumber berstatus pending/rejected diabaikan.
 ///
 /// Double-entry:
-/// - income : debit akun Kas/Bank, kredit akun Pendapatan.
-/// - expense: debit akun Beban, kredit akun Kas/Bank.
+/// - transaksi income : debit Kas/Bank, kredit kategori (Pendapatan/Piutang).
+/// - transaksi expense: debit kategori (Beban/Utang), kredit Kas/Bank.
+/// - piutang          : debit akun Piutang, kredit akun Pendapatan.
+/// - utang            : debit akun Beban, kredit akun Utang.
 abstract final class LedgerCalculator {
   /// Sisi debit dan kredit sebuah transaksi.
   static ({String debit, String credit}) postingOf(FinanceTransaction tx) =>
@@ -69,26 +102,79 @@ abstract final class LedgerCalculator {
       ? debit - credit
       : credit - debit;
 
-  static List<FinanceTransaction> _approvedSorted(
-    Iterable<FinanceTransaction> transactions,
-  ) {
-    final items = transactions
-        .where((tx) => tx.status == TransactionStatus.approved)
-        .toList();
-    // Kronologis dan deterministik agar saldo berjalan stabil.
-    items.sort((a, b) {
-      final byDate = dateOnly(a.date).compareTo(dateOnly(b.date));
+  static JournalLine _fromTransaction(FinanceTransaction tx) {
+    final posting = postingOf(tx);
+    return JournalLine(
+      source: JournalSource.transaction,
+      sourceId: tx.id,
+      date: dateOnly(tx.date),
+      createdAt: tx.createdAt,
+      description: tx.description,
+      debitAccountId: posting.debit,
+      creditAccountId: posting.credit,
+      amount: tx.amount,
+    );
+  }
+
+  static JournalLine _fromBill(
+    Bill bill,
+    JournalSource source, {
+    required String debit,
+    required String credit,
+  }) => JournalLine(
+    source: source,
+    sourceId: bill.id,
+    date: dateOnly(bill.issueDate),
+    createdAt: bill.createdAt,
+    description: '${bill.number} · ${bill.partyName} · ${bill.description}',
+    debitAccountId: debit,
+    creditAccountId: credit,
+    amount: bill.amount,
+  );
+
+  /// Seluruh jurnal approved, kronologis dan deterministik.
+  static List<JournalLine> journal(
+    Iterable<FinanceTransaction> transactions, {
+    Iterable<Receivable> receivables = const [],
+    Iterable<Payable> payables = const [],
+  }) {
+    final lines = <JournalLine>[
+      for (final tx in transactions)
+        if (tx.status == TransactionStatus.approved) _fromTransaction(tx),
+      for (final r in receivables)
+        if (r.isApproved)
+          _fromBill(
+            r,
+            JournalSource.receivable,
+            debit: receivableAccountCode,
+            credit: r.revenueAccountId,
+          ),
+      for (final p in payables)
+        if (p.isApproved)
+          _fromBill(
+            p,
+            JournalSource.payable,
+            debit: p.expenseAccountId,
+            credit: payableAccountCode,
+          ),
+    ];
+    lines.sort((a, b) {
+      final byDate = a.date.compareTo(b.date);
       if (byDate != 0) return byDate;
       final byCreated = a.createdAt.compareTo(b.createdAt);
-      return byCreated != 0 ? byCreated : a.id.compareTo(b.id);
+      if (byCreated != 0) return byCreated;
+      final bySource = a.source.index.compareTo(b.source.index);
+      return bySource != 0 ? bySource : a.sourceId.compareTo(b.sourceId);
     });
-    return items;
+    return lines;
   }
 
   /// Ledger satu akun. [from] dan [to] inklusif (per tanggal).
   static AccountLedger forAccount(
     ChartAccount account,
     Iterable<FinanceTransaction> transactions, {
+    Iterable<Receivable> receivables = const [],
+    Iterable<Payable> payables = const [],
     DateTime? from,
     DateTime? to,
   }) {
@@ -97,15 +183,18 @@ abstract final class LedgerCalculator {
     var opening = 0;
     var balance = 0;
     final entries = <LedgerEntry>[];
-    for (final tx in _approvedSorted(transactions)) {
-      final posting = postingOf(tx);
-      final debit = posting.debit == account.code ? tx.amount : 0;
-      final credit = posting.credit == account.code ? tx.amount : 0;
+    final lines = journal(
+      transactions,
+      receivables: receivables,
+      payables: payables,
+    );
+    for (final line in lines) {
+      final debit = line.debitAccountId == account.code ? line.amount : 0;
+      final credit = line.creditAccountId == account.code ? line.amount : 0;
       if (debit == 0 && credit == 0) continue;
-      final day = dateOnly(tx.date);
-      if (end != null && day.isAfter(end)) break;
+      if (end != null && line.date.isAfter(end)) break;
       final delta = signedAmount(account, debit: debit, credit: credit);
-      if (start != null && day.isBefore(start)) {
+      if (start != null && line.date.isBefore(start)) {
         opening += delta;
         balance = opening;
         continue;
@@ -113,9 +202,10 @@ abstract final class LedgerCalculator {
       balance += delta;
       entries.add(
         LedgerEntry(
-          transactionId: tx.id,
-          date: day,
-          description: tx.description,
+          source: line.source,
+          sourceId: line.sourceId,
+          date: line.date,
+          description: line.description,
           debit: debit,
           credit: credit,
           balance: balance,
@@ -132,23 +222,29 @@ abstract final class LedgerCalculator {
   /// Saldo akhir setiap akun pada [accounts]; akun tanpa mutasi bernilai 0.
   static Map<String, int> balances(
     Iterable<ChartAccount> accounts,
-    Iterable<FinanceTransaction> transactions,
-  ) {
+    Iterable<FinanceTransaction> transactions, {
+    Iterable<Receivable> receivables = const [],
+    Iterable<Payable> payables = const [],
+  }) {
     final byCode = {for (final a in accounts) a.code: a};
     final result = {for (final code in byCode.keys) code: 0};
-    for (final tx in _approvedSorted(transactions)) {
-      final posting = postingOf(tx);
-      final debitAccount = byCode[posting.debit];
+    final lines = journal(
+      transactions,
+      receivables: receivables,
+      payables: payables,
+    );
+    for (final line in lines) {
+      final debitAccount = byCode[line.debitAccountId];
       if (debitAccount != null) {
         result[debitAccount.code] =
             result[debitAccount.code]! +
-            signedAmount(debitAccount, debit: tx.amount);
+            signedAmount(debitAccount, debit: line.amount);
       }
-      final creditAccount = byCode[posting.credit];
+      final creditAccount = byCode[line.creditAccountId];
       if (creditAccount != null) {
         result[creditAccount.code] =
             result[creditAccount.code]! +
-            signedAmount(creditAccount, credit: tx.amount);
+            signedAmount(creditAccount, credit: line.amount);
       }
     }
     return result;
