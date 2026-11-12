@@ -25,7 +25,9 @@ class CompanyController extends ChangeNotifier {
   bool busy = false;
   String? message;
   List<CompanyInvitation> pendingInvitations = const [];
+  List<CompanyMember> members = const [];
   bool emailVerified = false;
+  bool _revoking = false;
 
   void _emit() {
     if (!_disposed) notifyListeners();
@@ -41,8 +43,10 @@ class CompanyController extends ChangeNotifier {
     context = null;
     message = null;
     pendingInvitations = const [];
+    members = const [];
     emailVerified = false;
     busy = false;
+    _revoking = false;
     if (uid == null) {
       phase = CompanyPhase.waiting;
       _emit();
@@ -77,8 +81,17 @@ class CompanyController extends ChangeNotifier {
             phase = CompanyPhase.error;
             message = _error(error);
             _emit();
+            if (error is MembershipRevokedFailure) _signOutRevoked(error);
           },
         );
+  }
+
+  /// Member nonaktif tidak boleh tetap berada di aplikasi: akhiri sesi dan
+  /// tampilkan alasannya di halaman Login.
+  void _signOutRevoked(MembershipRevokedFailure error) {
+    if (_revoking) return;
+    _revoking = true;
+    unawaited(auth.signOut(notice: error.message));
   }
 
   String _error(Object error) => error is CompanyFailure
@@ -138,14 +151,35 @@ class CompanyController extends ChangeNotifier {
     final uid = _uid;
     final generation = _generation;
     final companyId = context?.company.id;
+    final isManager = context?.role == CompanyRole.manager;
     final verified = await _repository.refreshVerifiedEmail();
     final invitations = companyId == null && !verified
         ? <CompanyInvitation>[]
         : await _repository.invitations(companyId: companyId);
+    final team = isManager && companyId != null
+        ? await _repository.members(companyId)
+        : <CompanyMember>[];
     if (_uid != uid || generation != _generation || _disposed) return;
     emailVerified = verified;
     pendingInvitations = invitations;
+    members = team;
   });
+
+  /// Pemeriksaan role di sini hanya UX; Rules menolak non-Manager,
+  /// perubahan diri sendiri, dan perubahan role.
+  Future<bool> setMemberActive(String uid, {required bool active}) async {
+    final current = context;
+    if (current?.role != CompanyRole.manager || uid == _uid) return false;
+    final success = await _action(
+      () => _repository.setMemberActive(
+        current!.company.id,
+        uid,
+        active: active,
+      ),
+    );
+    if (success) await loadInvitations();
+    return success;
+  }
 
   Future<bool> sendVerificationEmail() =>
       _action(_repository.sendVerificationEmail);
