@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../auth/domain/auth_validators.dart';
@@ -116,13 +118,24 @@ class FirebaseCompanyRepository implements CompanyRepository {
       );
     }
     final companyRef = _store.collection('companies').doc(companyId);
+    final memberRef = companyRef.collection('members').doc(uid);
     final stream = StreamController<CompanyContext?>();
     Map<String, dynamic>? company;
     Map<String, dynamic>? member;
     var companyReady = false;
     var memberReady = false;
+    var revoked = false;
+    void revoke() {
+      if (revoked || stream.isClosed) return;
+      revoked = true;
+      stream.addError(const MembershipRevokedFailure());
+    }
+
     void emit() {
-      if (!companyReady || !memberReady || stream.isClosed) return;
+      if (stream.isClosed || revoked) return;
+      // Dokumen member sendiri tetap terbaca walau nonaktif (Rules isOwner).
+      if (memberReady && member?['status'] == 'inactive') return revoke();
+      if (!companyReady || !memberReady) return;
       try {
         stream.add(parseContext(companyId, uid, company, member));
       } catch (error) {
@@ -130,8 +143,19 @@ class FirebaseCompanyRepository implements CompanyRepository {
       }
     }
 
-    void fail(Object error) {
-      if (!stream.isClosed) {
+    Future<void> fail(Object error) async {
+      if (stream.isClosed || revoked) return;
+      // Penolakan baca perusahaan bisa datang sebelum snapshot member
+      // nonaktif; konfirmasi dari server agar pesan dan logout tepat.
+      try {
+        final own = await memberRef.get(
+          const GetOptions(source: Source.server),
+        );
+        if (own.data()?['status'] == 'inactive') return revoke();
+      } catch (_) {
+        // Tetap gagal tertutup dengan pesan umum di bawah.
+      }
+      if (!stream.isClosed && !revoked) {
         stream.addError(
           const CompanyFailure(
             'Membership belum dapat diverifikasi server. Periksa koneksi dan izin, lalu coba lagi.',
@@ -151,9 +175,7 @@ class FirebaseCompanyRepository implements CompanyRepository {
           companyReady = true;
           emit();
         }, onError: fail);
-    final memberSub = companyRef
-        .collection('members')
-        .doc(uid)
+    final memberSub = memberRef
         .snapshots(includeMetadataChanges: true)
         .listen((snapshot) {
           if (snapshot.metadata.isFromCache ||
@@ -166,7 +188,9 @@ class FirebaseCompanyRepository implements CompanyRepository {
         }, onError: fail);
     // Tidak membuka Dashboard dari cache atau write lokal yang belum disetujui.
     final timer = Timer(const Duration(seconds: 25), () {
-      if (!companyReady || !memberReady) fail(TimeoutException('membership'));
+      if (!companyReady || !memberReady) {
+        unawaited(fail(TimeoutException('membership')));
+      }
     });
     try {
       yield* stream.stream;
@@ -242,6 +266,82 @@ class FirebaseCompanyRepository implements CompanyRepository {
         });
       });
 
+  /// Harus sama dengan `invitationIdFor` di `firestore.rules`.
+  static String invitationIdFor(String companyId, String normalizedEmail) =>
+      '${companyId}_${sha256.convert(utf8.encode(normalizedEmail))}';
+
+  static CompanyMember? parseMember(
+    String uid,
+    Map<String, dynamic> data,
+    Map<String, String> emailsByInvitation,
+  ) {
+    final role = data['role'];
+    final status = data['status'];
+    if (data['uid'] != uid ||
+        !['manager', 'finance'].contains(role) ||
+        !['active', 'inactive'].contains(status)) {
+      return null;
+    }
+    return CompanyMember(
+      uid: uid,
+      role: role == 'manager' ? CompanyRole.manager : CompanyRole.finance,
+      active: status == 'active',
+      email: emailsByInvitation[data['invitationId']],
+    );
+  }
+
+  @override
+  Future<List<CompanyMember>> members(String companyId) => _guard(() async {
+    const server = GetOptions(source: Source.server);
+    final results = await Future.wait([
+      _store
+          .collection('companies')
+          .doc(companyId)
+          .collection('members')
+          .get(server),
+      _store
+          .collection('company_invitations')
+          .where('companyId', isEqualTo: companyId)
+          .get(server),
+    ]);
+    final emails = {
+      for (final invite in results[1].docs)
+        if (invite.data()['email'] is String)
+          invite.id: invite.data()['email'] as String,
+    };
+    final list = [
+      for (final doc in results[0].docs)
+        ?parseMember(doc.id, doc.data(), emails),
+    ];
+    list.sort((a, b) {
+      if (a.role != b.role) return a.role == CompanyRole.manager ? -1 : 1;
+      return (a.email ?? a.uid).compareTo(b.email ?? b.uid);
+    });
+    return list;
+  });
+
+  @override
+  Future<void> setMemberActive(
+    String companyId,
+    String uid, {
+    required bool active,
+  }) => _guard(() async {
+    final self = _user.uid;
+    if (uid == self) {
+      throw const CompanyFailure('Anda tidak dapat mengubah status akun sendiri.');
+    }
+    await _store
+        .collection('companies')
+        .doc(companyId)
+        .collection('members')
+        .doc(uid)
+        .update({
+          'status': active ? 'active' : 'inactive',
+          'statusChangedBy': self,
+          'statusChangedAt': FieldValue.serverTimestamp(),
+        });
+  });
+
   static CompanyInvitation parseInvitation(
     String id,
     Map<String, dynamic> data,
@@ -297,7 +397,8 @@ class FirebaseCompanyRepository implements CompanyRepository {
         );
       }
       // Deterministik per perusahaan/email; retry tidak menggandakan undangan.
-      final id = Uri.encodeComponent('$companyId:$normalized');
+      // Skema ID dikunci Rules (F2).
+      final id = invitationIdFor(companyId, normalized);
       final reference = _store.collection('company_invitations').doc(id);
       final companyRef = _store.collection('companies').doc(companyId);
       await _store.runTransaction((transaction) async {
