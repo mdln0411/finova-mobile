@@ -6,8 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../transactions/data/transaction_codec.dart';
 import '../../transactions/domain/finance_transaction.dart';
-import '../domain/bill.dart';
 import '../domain/receivable.dart';
+import '../domain/receivable_status.dart';
 import '../domain/receivables_repository.dart';
 import 'receivable_codec.dart';
 
@@ -47,15 +47,6 @@ class FirebaseReceivablesRepository implements ReceivablesRepository {
     }
     return _collection(companyId).doc(id);
   }
-
-  DocumentReference<Map<String, dynamic>> _recognitionDoc(
-    String companyId,
-    String receivableId,
-  ) => _store
-      .collection('companies')
-      .doc(companyId)
-      .collection('transactions')
-      .doc('receivable-$receivableId');
 
   ReceivableFailure _failure(Object error) {
     if (error is ReceivableFailure) return error;
@@ -127,7 +118,7 @@ class FirebaseReceivablesRepository implements ReceivablesRepository {
   }
 
   @override
-  Stream<List<Bill>> watchBills(String companyId) {
+  Stream<List<FinanceTransaction>> watchPayments(String companyId) {
     try {
       _uid(companyId);
       return _store
@@ -141,32 +132,27 @@ class FirebaseReceivablesRepository implements ReceivablesRepository {
                 !snapshot.metadata.hasPendingWrites,
           )
           .map((snapshot) {
-            final bills =
+            final payments =
                 snapshot.docs
                     .where((document) {
                       final receivableId = document.data()['receivableId'];
-                      return receivableId is String &&
-                          receivableId.isNotEmpty &&
-                          document.data()['categoryAccountId'] == '1300';
+                      return receivableId is String && receivableId.isNotEmpty;
                     })
-                    .map((document) {
-                      final transaction = TransactionCodec.fromDocument(
+                    .map(
+                      (document) => TransactionCodec.fromDocument(
                         document.id,
                         document.data(),
-                      );
-                      if (transaction.type != TransactionType.income) {
-                        throw const ReceivableFailure(
-                          'Riwayat pembayaran piutang tidak sesuai.',
-                        );
-                      }
-                      return Bill.fromTransaction(transaction);
-                    })
+                      ),
+                    )
                     .toList()
                   ..sort((a, b) => b.date.compareTo(a.date));
-            return List<Bill>.unmodifiable(bills);
+            return List<FinanceTransaction>.unmodifiable(payments);
           })
           .transform(
-            StreamTransformer<List<Bill>, List<Bill>>.fromHandlers(
+            StreamTransformer<
+              List<FinanceTransaction>,
+              List<FinanceTransaction>
+            >.fromHandlers(
               handleError: (error, stack, sink) =>
                   sink.addError(_failure(error), stack),
             ),
@@ -180,10 +166,10 @@ class FirebaseReceivablesRepository implements ReceivablesRepository {
   String newReceivableId(String companyId) => _collection(companyId).doc().id;
 
   @override
-  Future<void> create(String companyId, String id, ReceivableDraft draft) =>
+  Future<void> create(String companyId, Receivable receivable) =>
       _guard(() async {
         final uid = _uid(companyId);
-        final reference = _doc(companyId, id);
+        final reference = _doc(companyId, receivable.id);
         await _store.runTransaction((transaction) async {
           final existing = await transaction.get(reference);
           if (existing.exists) {
@@ -191,8 +177,8 @@ class FirebaseReceivablesRepository implements ReceivablesRepository {
             throw const ReceivableFailure('ID piutang sudah digunakan.');
           }
           transaction.set(reference, {
-            ...ReceivableCodec.draftValues(draft),
-            'status': ReceivableStatus.pending.name,
+            ...ReceivableCodec.draftValues(receivable),
+            'status': TransactionStatus.pending.name,
             'createdBy': uid,
             'createdAt': FieldValue.serverTimestamp(),
             'approvedBy': null,
@@ -203,10 +189,13 @@ class FirebaseReceivablesRepository implements ReceivablesRepository {
       });
 
   @override
-  Future<void> update(String companyId, String id, ReceivableDraft draft) =>
+  Future<void> update(String companyId, Receivable receivable) =>
       _guard(() async {
         _uid(companyId);
-        await _doc(companyId, id).update(ReceivableCodec.draftValues(draft));
+        await _doc(
+          companyId,
+          receivable.id,
+        ).update(ReceivableCodec.draftValues(receivable));
       });
 
   @override
@@ -215,66 +204,17 @@ class FirebaseReceivablesRepository implements ReceivablesRepository {
     await _doc(companyId, id).delete();
   });
 
+  /// Hanya status yang berubah. Jurnal Piutang/Pendapatan dihitung
+  /// [LedgerCalculator] langsung dari piutang approved, sehingga tidak ada
+  /// transaksi pengakuan terpisah (mencegah penghitungan ganda).
   @override
   Future<void> approve(String companyId, String id) => _guard(() async {
     final uid = _uid(companyId);
-    final receivableReference = _doc(companyId, id);
-    final recognitionReference = _recognitionDoc(companyId, id);
-    await _store.runTransaction((transaction) async {
-      final receivableSnapshot = await transaction.get(receivableReference);
-      final recognitionSnapshot = await transaction.get(recognitionReference);
-      final data = receivableSnapshot.data();
-      if (data == null) {
-        throw const ReceivableFailure('Piutang tidak ditemukan.');
-      }
-      if (data['status'] == ReceivableStatus.approved.name) {
-        final recognition = recognitionSnapshot.data();
-        if (recognition?['receivableId'] == id &&
-            recognition?['status'] == TransactionStatus.approved.name &&
-            recognition?['amount'] == data['amount'] &&
-            recognition?['cashAccountId'] == '1300' &&
-            recognition?['categoryAccountId'] == data['revenueAccountId'] &&
-            recognition?['approvedBy'] == data['approvedBy']) {
-          return;
-        }
-        throw const ReceivableFailure(
-          'Jurnal pengakuan piutang tidak ditemukan. Hubungi Manager.',
-        );
-      }
-      if (data['status'] != ReceivableStatus.pending.name) {
-        throw const ReceivableFailure(
-          'Piutang sudah diproses atau tidak dapat disetujui.',
-        );
-      }
-      if (recognitionSnapshot.exists) {
-        throw const ReceivableFailure(
-          'ID jurnal piutang sudah digunakan. Hubungi Manager.',
-        );
-      }
-      final receivable = ReceivableCodec.fromDocument(id, data);
-      final timestamp = FieldValue.serverTimestamp();
-      transaction.update(receivableReference, {
-        'status': ReceivableStatus.approved.name,
-        'approvedBy': uid,
-        'approvedAt': timestamp,
-        'rejectReason': null,
-      });
-      transaction.set(recognitionReference, {
-        'type': TransactionType.income.name,
-        'amount': receivable.amount,
-        'date': FieldValue.serverTimestamp(),
-        'description':
-            'Pengakuan piutang ${receivable.number} · ${receivable.customerName}',
-        'cashAccountId': '1300',
-        'categoryAccountId': receivable.revenueAccountId,
-        'receivableId': receivable.id,
-        'status': TransactionStatus.approved.name,
-        'createdBy': uid,
-        'createdAt': timestamp,
-        'approvedBy': uid,
-        'approvedAt': timestamp,
-        'rejectReason': null,
-      });
+    await _doc(companyId, id).update({
+      'status': TransactionStatus.approved.name,
+      'approvedBy': uid,
+      'approvedAt': FieldValue.serverTimestamp(),
+      'rejectReason': null,
     });
   });
 
@@ -285,7 +225,7 @@ class FirebaseReceivablesRepository implements ReceivablesRepository {
         final error = validateRejectReason(reason);
         if (error != null) throw ReceivableFailure(error);
         await _doc(companyId, id).update({
-          'status': ReceivableStatus.rejected.name,
+          'status': TransactionStatus.rejected.name,
           'approvedBy': uid,
           'approvedAt': FieldValue.serverTimestamp(),
           'rejectReason': reason.trim(),

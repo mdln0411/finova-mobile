@@ -2,9 +2,10 @@ import 'package:finova/app/theme/app_theme.dart';
 import 'package:finova/features/chart_of_accounts/domain/default_chart_of_accounts.dart';
 import 'package:finova/features/company/domain/company.dart';
 import 'package:finova/features/receivables/application/receivables_controller.dart';
-import 'package:finova/features/receivables/domain/bill.dart';
 import 'package:finova/features/receivables/domain/receivable.dart';
+import 'package:finova/features/receivables/domain/receivable_status.dart';
 import 'package:finova/features/receivables/presentation/receivables_page.dart';
+import 'package:finova/features/transactions/domain/bill.dart';
 import 'package:finova/features/transactions/domain/finance_transaction.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,78 +19,81 @@ void main() {
   test('Receivable validates required fields and calculates unpaid status', () {
     final due = DateTime.now().add(const Duration(days: 2));
     final receivable = sampleReceivable(
-      status: ReceivableStatus.approved,
+      status: TransactionStatus.approved,
       dueDate: due,
       amount: 100000,
     );
-    final pendingBill = Bill(
-      id: 'pending',
-      receivableId: receivable.id,
-      amount: 20000,
+    FinanceTransaction payment(
+      String id,
+      int amount,
+      TransactionStatus status,
+    ) => FinanceTransaction(
+      id: id,
+      type: TransactionType.income,
+      amount: amount,
       date: DateTime.now(),
-      description: 'Pembayaran menunggu',
-      status: TransactionStatus.pending,
+      description: 'Pembayaran $id',
+      cashAccountId: '1100',
+      categoryAccountId: receivableAccountCode,
+      status: status,
       createdBy: 'finance',
       createdAt: DateTime.now(),
-    );
-    final approvedBill = Bill(
-      id: 'approved',
       receivableId: receivable.id,
-      amount: 40000,
-      date: DateTime.now(),
-      description: 'Pembayaran disetujui',
+    );
+    final pendingPayment = payment('pending', 20000, TransactionStatus.pending);
+    final approvedPayment = payment(
+      'approved',
+      40000,
+      TransactionStatus.approved,
+    );
+    final partial = receivable.settlement([pendingPayment, approvedPayment]);
+    expect(partial.remaining, 60000);
+    expect(
+      receivable
+          .paymentsFrom([pendingPayment, approvedPayment])
+          .map((tx) => tx.id),
+      containsAll(['pending', 'approved']),
+    );
+    final paid = receivable.settlement([
+      approvedPayment,
+      payment('overpayment', 100000, TransactionStatus.approved),
+    ]);
+    expect(paid.remaining, 0);
+    expect(receivable.statusLabel(partial), 'Dibayar sebagian');
+    expect(receivable.statusLabel(paid), 'Lunas');
+    final late = sampleReceivable(
       status: TransactionStatus.approved,
-      createdBy: 'finance',
-      createdAt: DateTime.now(),
+      dueDate: DateTime.now().subtract(const Duration(days: 1)),
     );
-    expect(receivable.remainingAmount([pendingBill, approvedBill]), 60000);
+    expect(late.statusLabel(late.settlement(const [])), 'Terlambat');
     expect(
-      receivable.remainingAmount([
-        approvedBill,
-        Bill(
-          id: 'overpayment',
-          receivableId: receivable.id,
-          amount: 100000,
-          date: DateTime.now(),
-          description: 'Pembayaran lebih',
-          status: TransactionStatus.approved,
+      sampleReceivable().statusLabel(const BillSettlement(amount: 1, paid: 0)),
+      'Menunggu persetujuan',
+    );
+
+    Receivable draft({String customer = 'Customer', int amount = 10}) =>
+        Receivable(
+          id: 'draft',
+          customerName: customer,
+          number: 'INV',
+          amount: amount,
+          issueDate: DateTime.utc(2026, 3, 1),
+          dueDate: DateTime.utc(2026, 3, 1),
+          description: 'Penjualan',
+          revenueAccountId: '4100',
+          status: TransactionStatus.pending,
           createdBy: 'finance',
-          createdAt: DateTime.now(),
-        ),
-      ]),
-      0,
-    );
-    expect(receivable.paymentStatus(60000), 'Belum lunas');
-    expect(receivable.paymentStatus(0), 'Lunas');
+          createdAt: DateTime.utc(2026, 3, 1),
+        );
     expect(
-      sampleReceivable(
-        status: ReceivableStatus.approved,
-        dueDate: DateTime.now().subtract(const Duration(days: 1)),
-      ).paymentStatus(100),
-      'Terlambat',
+      draft(customer: ' ').validate(accounts: defaultChartOfAccounts),
+      contains('Nama pelanggan'),
     );
     expect(
-      ReceivableDraft(
-        customerName: ' ',
-        number: 'INV',
-        amount: 10,
-        revenueAccountId: '4100',
-        dueDate: DateTime.utc(2026, 3, 1),
-        description: '',
-      ).validate(),
-      contains('Nama customer'),
+      draft(amount: 0).validate(accounts: defaultChartOfAccounts),
+      contains('Nominal'),
     );
-    expect(
-      ReceivableDraft(
-        customerName: 'Customer',
-        number: 'INV',
-        amount: 0,
-        revenueAccountId: '4100',
-        dueDate: DateTime.utc(2026, 3, 1),
-        description: '',
-      ).validate(),
-      contains('Jumlah'),
-    );
+    expect(draft().validate(accounts: defaultChartOfAccounts), isNull);
   });
 
   test(
@@ -165,12 +169,12 @@ void main() {
       receivables: [
         sampleReceivable(
           id: 'soon',
-          status: ReceivableStatus.approved,
+          status: TransactionStatus.approved,
           dueDate: today.add(const Duration(days: 3)),
         ),
         sampleReceivable(
           id: 'late',
-          status: ReceivableStatus.approved,
+          status: TransactionStatus.approved,
           dueDate: today.subtract(const Duration(days: 1)),
         ),
       ],
@@ -214,6 +218,15 @@ void main() {
     await tester.tap(find.text('4100 · Penjualan barang').last);
     await tester.pumpAndSettle();
     await tester.dragUntilVisible(
+      find.widgetWithText(TextField, 'Keterangan'),
+      find.byType(ListView).last,
+      const Offset(0, -180),
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Keterangan'),
+      'Penjualan bulan ini',
+    );
+    await tester.dragUntilVisible(
       find.text('Ajukan piutang'),
       find.byType(ListView).last,
       const Offset(0, -180),
@@ -222,7 +235,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(page.$1.calls, ['create:receivable-1']);
     expect(page.$1.items.single.revenueAccountId, '4100');
-    expect(page.$1.items.single.status, ReceivableStatus.pending);
+    expect(page.$1.items.single.status, TransactionStatus.pending);
   });
 
   testWidgets(
@@ -250,7 +263,7 @@ void main() {
         role: CompanyRole.finance,
         receivables: [
           sampleReceivable(
-            status: ReceivableStatus.approved,
+            status: TransactionStatus.approved,
             dueDate: DateTime.now().add(const Duration(days: 3)),
           ),
         ],

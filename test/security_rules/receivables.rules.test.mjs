@@ -20,6 +20,7 @@ function receivable(createdBy, changes = {}) {
     number: 'INV-001',
     amount: 150000,
     revenueAccountId: '4100',
+    issueDate: day('2026-02-01'),
     dueDate: day('2026-03-01'),
     description: 'Penjualan barang',
     status: 'pending',
@@ -167,6 +168,11 @@ test('Receivable: Finance dan Manager aktif membuat piutang berstatus pending', 
     { customerName: ' ' },
     { number: '' },
     { dueDate: day('2025-12-31') },
+    { dueDate: day('2026-01-31') },
+    { issueDate: day('2025-12-31') },
+    { issueDate: day('2099-01-01'), dueDate: day('2099-02-01') },
+    { issueDate: null },
+    { description: '' },
     { extra: true },
   ]) {
     await assertFails(setDoc(receivableRef(db('finance'), 'invalid'), receivable('finance', changes)));
@@ -179,6 +185,10 @@ test('Receivable: pembuat mengedit atau menghapus hanya dokumen pending miliknya
   await assertSucceeds(updateDoc(receivableRef(db('finance'), 'r1'), {
     amount: 175000,
     customerName: 'Customer Baru',
+    issueDate: day('2026-02-15'),
+  }));
+  await assertFails(updateDoc(receivableRef(db('finance'), 'r1'), {
+    dueDate: day('2026-02-01'),
   }));
   await assertFails(updateDoc(receivableRef(db('finance2'), 'r2'), { amount: 1 }));
   await assertFails(updateDoc(receivableRef(db('manager'), 'r2'), { amount: 1 }));
@@ -208,10 +218,12 @@ test('Receivable: hanya Manager aktif dapat approve atau reject pending', async 
   }));
   await assertFails(updateDoc(receivableRef(db('manager'), 'approve'), {
     status: 'approved',
-    approvedBy: 'manager',
+    approvedBy: 'finance',
     approvedAt: serverTimestamp(),
     rejectReason: null,
   }));
+  // Jurnal Piutang/Pendapatan dihitung dari piutang approved; transaksi
+  // pengakuan terpisah ditolak agar tidak tercatat ganda.
   const store = db('manager');
   const approval = writeBatch(store);
   approval.update(receivableRef(store, 'approve'), {
@@ -224,7 +236,13 @@ test('Receivable: hanya Manager aktif dapat approve atau reject pending', async 
     doc(store, 'companies', companyId, 'transactions', 'receivable-approve'),
     recognition('approve'),
   );
-  await assertSucceeds(approval.commit());
+  await assertFails(approval.commit());
+  await assertSucceeds(updateDoc(receivableRef(db('manager'), 'approve'), {
+    status: 'approved',
+    approvedBy: 'manager',
+    approvedAt: serverTimestamp(),
+    rejectReason: null,
+  }));
   await assertFails(updateDoc(receivableRef(db('manager'), 'reject'), {
     status: 'rejected',
     approvedBy: 'manager',

@@ -1,4 +1,5 @@
 import '../../chart_of_accounts/domain/chart_account.dart';
+import '../../chart_of_accounts/domain/default_chart_of_accounts.dart';
 
 enum TransactionType {
   income('Pemasukan', AccountType.revenue),
@@ -55,29 +56,31 @@ class FinanceTransaction {
     required this.status,
     required this.createdBy,
     required this.createdAt,
-    this.receivableId,
     this.approvedBy,
     this.approvedAt,
     this.rejectReason,
+    this.receivableId,
+    this.payableId,
   });
   final String id;
   final TransactionType type;
   final int amount;
   final DateTime date;
   final String description;
-
-  /// Akun debit; untuk pengakuan piutang berisi akun Piutang (1300).
   final String cashAccountId;
   final String categoryAccountId;
   final TransactionStatus status;
   final String createdBy;
   final DateTime createdAt;
-  final String? receivableId;
 
   /// Pengambil keputusan (setujui atau tolak).
   final String? approvedBy;
   final DateTime? approvedAt;
   final String? rejectReason;
+
+  /// Tagihan yang dibayar transaksi ini (opsional, maksimal salah satu).
+  final String? receivableId;
+  final String? payableId;
 
   bool get isPending => status == TransactionStatus.pending;
   bool canModify(String? uid) => isPending && uid != null && createdBy == uid;
@@ -90,6 +93,7 @@ class FinanceTransaction {
     cashAccountId: cashAccountId,
     categoryAccountId: categoryAccountId,
     receivableId: receivableId,
+    payableId: payableId,
   );
 }
 
@@ -102,6 +106,7 @@ class TransactionDraft {
     required this.cashAccountId,
     required this.categoryAccountId,
     this.receivableId,
+    this.payableId,
   });
   final TransactionType type;
   final int amount;
@@ -110,6 +115,7 @@ class TransactionDraft {
   final String cashAccountId;
   final String categoryAccountId;
   final String? receivableId;
+  final String? payableId;
 
   /// Validasi client untuk UX. Rules tetap menjadi pengaman utama.
   String? validate({
@@ -139,19 +145,9 @@ class TransactionDraft {
     final category = accounts
         .where((a) => a.code == categoryAccountId)
         .firstOrNull;
-    if (receivableId != null) {
-      if (receivableId!.isEmpty || type != TransactionType.income) {
-        return 'Pembayaran piutang harus berupa pemasukan yang valid.';
-      }
-      if (category == null ||
-          category.code != '1300' ||
-          category.type != AccountType.asset ||
-          !category.isPosting ||
-          !category.isActive) {
-        return 'Pilih akun Piutang (1300) untuk pembayaran piutang.';
-      }
-      return null;
-    }
+    final billError = _validateBillLink(category);
+    if (billError != null) return billError;
+    if (receivableId != null || payableId != null) return null;
     if (category == null || !isCategoryAccount(category, type)) {
       return type == TransactionType.income
           ? 'Pilih kategori akun Pendapatan.'
@@ -159,6 +155,43 @@ class TransactionDraft {
     }
     return null;
   }
+
+  /// Pembayaran tagihan wajib memakai akun kontrol Piutang/Utang sebagai
+  /// kategori, sehingga pendapatan/beban tidak tercatat dua kali.
+  String? _validateBillLink(ChartAccount? category) {
+    final receivable = receivableId?.trim();
+    final payable = payableId?.trim();
+    if (receivable != null && payable != null) {
+      return 'Transaksi hanya boleh membayar satu tagihan.';
+    }
+    if (receivable != null) {
+      if (receivable.isEmpty) return 'Tagihan piutang tidak valid.';
+      if (type != TransactionType.income) {
+        return 'Pembayaran piutang harus berupa Pemasukan.';
+      }
+      if (categoryAccountId != receivableAccountCode ||
+          !_isActiveControl(category, AccountType.asset)) {
+        return 'Pembayaran piutang wajib memakai akun Piutang usaha.';
+      }
+    }
+    if (payable != null) {
+      if (payable.isEmpty) return 'Tagihan utang tidak valid.';
+      if (type != TransactionType.expense) {
+        return 'Pembayaran utang harus berupa Pengeluaran.';
+      }
+      if (categoryAccountId != payableAccountCode ||
+          !_isActiveControl(category, AccountType.liability)) {
+        return 'Pembayaran utang wajib memakai akun Utang usaha.';
+      }
+    }
+    return null;
+  }
+
+  static bool _isActiveControl(ChartAccount? account, AccountType type) =>
+      account != null &&
+      account.type == type &&
+      account.isPosting &&
+      account.isActive;
 }
 
 /// Terbaru lebih dulu: tanggal transaksi, lalu waktu dibuat.

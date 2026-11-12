@@ -4,8 +4,8 @@ import 'package:flutter/foundation.dart';
 
 import '../../company/domain/company.dart';
 import '../../transactions/domain/finance_transaction.dart';
-import '../domain/bill.dart';
 import '../domain/receivable.dart';
+import '../domain/receivable_status.dart';
 import '../domain/receivables_repository.dart';
 
 class ReceivablesController extends ChangeNotifier {
@@ -23,18 +23,18 @@ class ReceivablesController extends ChangeNotifier {
   final String? userId;
   final CompanyRole role;
   StreamSubscription<List<Receivable>>? _subscription;
-  StreamSubscription<List<Bill>>? _billSubscription;
+  StreamSubscription<List<FinanceTransaction>>? _paymentSubscription;
   Timer? _timer;
   int _generation = 0;
   bool _disposed = false;
   bool _receivablesLoaded = false;
-  bool _billsLoaded = false;
+  bool _paymentsLoaded = false;
   String? _receivablesError;
-  String? _billsError;
+  String? _paymentsError;
   bool loading = true;
   bool busy = false;
   List<Receivable> receivables = const [];
-  List<Bill> bills = const [];
+  List<FinanceTransaction> payments = const [];
   String? loadError;
   String? actionError;
   String? notice;
@@ -51,14 +51,14 @@ class ReceivablesController extends ChangeNotifier {
     if (_disposed || busy) return;
     final generation = ++_generation;
     unawaited(_subscription?.cancel());
-    unawaited(_billSubscription?.cancel());
+    unawaited(_paymentSubscription?.cancel());
     _timer?.cancel();
     receivables = const [];
-    bills = const [];
+    payments = const [];
     _receivablesLoaded = false;
-    _billsLoaded = false;
+    _paymentsLoaded = false;
     _receivablesError = null;
-    _billsError = null;
+    _paymentsError = null;
     loading = true;
     loadError = null;
     _emit();
@@ -89,22 +89,22 @@ class ReceivablesController extends ChangeNotifier {
             _emit();
           },
         );
-    _billSubscription = repository
-        .watchBills(companyId)
+    _paymentSubscription = repository
+        .watchPayments(companyId)
         .listen(
           (value) {
             if (_disposed || generation != _generation) return;
-            bills = value;
-            _billsLoaded = true;
-            _billsError = null;
+            payments = value;
+            _paymentsLoaded = true;
+            _paymentsError = null;
             _updateLoadState();
             _emit();
           },
           onError: (Object error) {
             if (_disposed || generation != _generation) return;
-            bills = const [];
-            _billsLoaded = true;
-            _billsError = _message(error);
+            payments = const [];
+            _paymentsLoaded = true;
+            _paymentsError = _message(error);
             _updateLoadState();
             _emit();
           },
@@ -112,10 +112,10 @@ class ReceivablesController extends ChangeNotifier {
   }
 
   void _updateLoadState() {
-    loading = !_receivablesLoaded || !_billsLoaded;
+    loading = !_receivablesLoaded || !_paymentsLoaded;
     if (!loading) {
       _timer?.cancel();
-      loadError = _receivablesError ?? _billsError;
+      loadError = _receivablesError ?? _paymentsError;
     }
   }
 
@@ -148,15 +148,17 @@ class ReceivablesController extends ChangeNotifier {
     }
   }
 
-  Future<bool> create(String id, ReceivableDraft draft) => _run(
-    () => repository.create(companyId, id, draft),
+  Future<bool> create(Receivable receivable) => _run(
+    () => repository.create(companyId, receivable),
     'Piutang diajukan dan menunggu persetujuan Manager.',
   );
 
-  Future<bool> update(Receivable receivable, ReceivableDraft draft) {
-    if (!receivable.canModify(userId)) return _denied();
+  Future<bool> update(Receivable existing, Receivable receivable) {
+    if (!existing.canModify(userId) || existing.id != receivable.id) {
+      return _denied();
+    }
     return _run(
-      () => repository.update(companyId, receivable.id, draft),
+      () => repository.update(companyId, receivable),
       'Piutang diperbarui.',
     );
   }
@@ -203,7 +205,7 @@ class ReceivablesController extends ChangeNotifier {
     _generation++;
     _timer?.cancel();
     unawaited(_subscription?.cancel());
-    unawaited(_billSubscription?.cancel());
+    unawaited(_paymentSubscription?.cancel());
     super.dispose();
   }
 }

@@ -5,6 +5,7 @@ import 'package:finova/features/chart_of_accounts/domain/default_chart_of_accoun
 import 'package:finova/features/ledger/application/ledger_controller.dart';
 import 'package:finova/features/ledger/domain/ledger_calculator.dart';
 import 'package:finova/features/ledger/presentation/ledger_page.dart';
+import 'package:finova/features/receivables/domain/receivable.dart';
 import 'package:finova/features/transactions/domain/finance_transaction.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,14 +52,19 @@ void main() {
       expect(p.credit, '4200');
     });
 
-    test('pengakuan piutang mendebit Piutang, pembayaran mengkreditnya', () {
-      final recognition = tx(
-        'ar',
-        type: TransactionType.income,
+    test('piutang approved mendebit Piutang, pembayaran mengkreditnya', () {
+      final receivable = Receivable(
+        id: 'r1',
+        customerName: 'Customer Finova',
+        number: 'INV-001',
         amount: 150000,
-        cash: '1300',
-        category: '4100',
-        receivableId: 'r1',
+        issueDate: DateTime.utc(2026, 3, 1),
+        dueDate: DateTime.utc(2026, 3, 10),
+        description: 'Penjualan barang',
+        revenueAccountId: '4100',
+        status: TransactionStatus.approved,
+        createdBy: 'test-user',
+        createdAt: DateTime.utc(2026, 3, 1),
       );
       final payment = tx(
         'payment',
@@ -68,24 +74,23 @@ void main() {
         category: '1300',
         receivableId: 'r1',
       );
-      final recognitionPosting = LedgerCalculator.postingOf(recognition);
       final paymentPosting = LedgerCalculator.postingOf(payment);
-      expect(recognitionPosting.debit, '1300');
-      expect(recognitionPosting.credit, '4100');
       expect(paymentPosting.debit, '1100');
       expect(paymentPosting.credit, '1300');
       expect(
-        LedgerCalculator.forAccount(account('1300'), [
-          recognition,
-          payment,
-        ]).closingBalance,
+        LedgerCalculator.forAccount(
+          account('1300'),
+          [payment],
+          receivables: [receivable],
+        ).closingBalance,
         100000,
       );
       expect(
-        LedgerCalculator.forAccount(account('4100'), [
-          recognition,
-          payment,
-        ]).closingBalance,
+        LedgerCalculator.forAccount(
+          account('4100'),
+          [payment],
+          receivables: [receivable],
+        ).closingBalance,
         150000,
       );
     });
@@ -117,7 +122,7 @@ void main() {
 
     test('Akun aset (saldo normal debit): saldo berjalan dan saldo akhir', () {
       final ledger = LedgerCalculator.forAccount(account('1100'), items);
-      expect(ledger.entries.map((e) => e.transactionId), [
+      expect(ledger.entries.map((e) => e.sourceId), [
         'in1',
         'ex1',
         'in2',
@@ -210,7 +215,7 @@ void main() {
           to: DateTime(2026, 3, 10),
         );
         expect(ledger.openingBalance, 1000000);
-        expect(ledger.entries.map((e) => e.transactionId), ['ex1', 'in2']);
+        expect(ledger.entries.map((e) => e.sourceId), ['ex1', 'in2']);
         expect(ledger.entries.map((e) => e.balance), [750000, 1250000]);
         expect(ledger.closingBalance, 1250000);
       },
@@ -248,7 +253,7 @@ void main() {
           tx('a', date: day, createdAt: DateTime.utc(2026, 3, 1, 9)),
         ];
         final ledger = LedgerCalculator.forAccount(account('5900'), input);
-        expect(ledger.entries.map((e) => e.transactionId), ['c', 'a', 'b']);
+        expect(ledger.entries.map((e) => e.sourceId), ['c', 'a', 'b']);
         expect(input.map((e) => e.id), ['b', 'c', 'a']);
       },
     );
