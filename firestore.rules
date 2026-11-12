@@ -142,7 +142,19 @@ service cloud.firestore {
       match /members/{uid} {
         allow get: if isOwner(uid) || manager(companyId);
         allow list: if manager(companyId);
-        allow update, delete: if false;
+        // Offboarding: Manager menonaktifkan/mengaktifkan kembali Finance lain.
+        // Dokumen tidak dihapus; role, uid dan link akses tetap.
+        // activeMember() mensyaratkan status 'active', jadi status 'inactive'
+        // langsung memutus akses ke seluruh data perusahaan.
+        allow update: if manager(companyId) && uid != request.auth.uid
+          && resource.data.role == 'finance'
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'statusChangedBy', 'statusChangedAt'])
+          && request.resource.data.status in ['active', 'inactive']
+          && request.resource.data.status != resource.data.status
+          && request.resource.data.statusChangedBy == request.auth.uid
+          && request.resource.data.statusChangedAt == request.time;
+        allow delete: if false;
         allow create: if isOwner(uid) && profileReady()
           && !exists(/databases/$(database)/documents/company_access/$(uid))
           && request.resource.data.keys().hasAll(['uid', 'role', 'status', 'joinedAt'])
@@ -303,12 +315,20 @@ service cloud.firestore {
         && d.companyName == get(/databases/$(database)/documents/companies/$(d.companyId)).data.name;
     }
 
+    // ID undangan deterministik dan terikat ke perusahaan pembuat:
+    // '<companyId>_<sha256(email) hex>'. Manager lain tidak dapat menyerobot
+    // ID milik perusahaan lain karena companyId wajib sama dengan Manager pembuat.
+    function invitationIdFor(companyId, email) {
+      return companyId + '_' + hashing.sha256(email).toHexString().lower();
+    }
+
     match /company_invitations/{invitationId} {
       // Missing get untuk transaksi idempotensi; tidak membuka dokumen yang ada.
       allow get: if request.auth != null && (resource == null
         || manager(resource.data.companyId) || verifiedRecipient(resource.data));
       allow list: if manager(resource.data.companyId) || verifiedRecipient(resource.data);
-      allow create: if profileReady() && validInvitation() && manager(request.resource.data.companyId);
+      allow create: if profileReady() && validInvitation() && manager(request.resource.data.companyId)
+        && invitationId == invitationIdFor(request.resource.data.companyId, request.resource.data.email);
       allow delete: if false;
       allow update: if request.auth != null && resource.data.status == 'pending'
         && request.resource.data.updatedAt == request.time
