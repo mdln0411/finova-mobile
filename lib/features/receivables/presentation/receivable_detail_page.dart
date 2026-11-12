@@ -5,12 +5,13 @@ import '../../../core/utils/date_format.dart';
 import '../../../core/utils/rupiah.dart';
 import '../../auth/presentation/widgets/auth_layout.dart';
 import '../../chart_of_accounts/domain/chart_account.dart';
+import '../../chart_of_accounts/domain/default_chart_of_accounts.dart';
 import '../../company/domain/company.dart';
 import '../../transactions/domain/finance_transaction.dart';
 import '../../transactions/domain/transactions_repository.dart';
 import '../application/receivables_controller.dart';
-import '../domain/bill.dart';
 import '../domain/receivable.dart';
+import '../domain/receivable_status.dart';
 
 class ReceivableDetailPage extends StatelessWidget {
   const ReceivableDetailPage({
@@ -30,7 +31,7 @@ class ReceivableDetailPage extends StatelessWidget {
 
   bool get _hasReceivableAccount => accounts.any(
     (account) =>
-        account.code == '1300' &&
+        account.code == receivableAccountCode &&
         account.type == AccountType.asset &&
         account.isPosting &&
         account.isActive,
@@ -72,7 +73,7 @@ class ReceivableDetailPage extends StatelessWidget {
   Future<void> _recordPayment(
     BuildContext context,
     Receivable currentReceivable,
-    List<Bill> bills,
+    List<FinanceTransaction> payments,
     int remaining,
   ) async {
     final created = await showDialog<bool>(
@@ -80,7 +81,7 @@ class ReceivableDetailPage extends StatelessWidget {
       builder: (context) => _RecordPaymentDialog(
         receivable: currentReceivable,
         remaining: remaining,
-        bills: bills,
+        payments: payments,
         company: company,
         accounts: accounts,
         repository: transactionsRepository,
@@ -107,13 +108,10 @@ class ReceivableDetailPage extends StatelessWidget {
                   .where((item) => item.id == receivable.id)
                   .firstOrNull ??
               receivable;
-          final bills =
-              controller.bills
-                  .where((bill) => bill.receivableId == currentReceivable.id)
-                  .toList()
-                ..sort((a, b) => b.date.compareTo(a.date));
-          final remaining = currentReceivable.remainingAmount(bills);
-          final paymentStatus = currentReceivable.paymentStatus(remaining);
+          final payments = currentReceivable.paymentsFrom(controller.payments);
+          final settlement = currentReceivable.settlement(payments);
+          final remaining = settlement.remaining;
+          final paymentStatus = currentReceivable.statusLabel(settlement);
           return ListView(
             padding: const EdgeInsets.all(24),
             children: [
@@ -134,6 +132,10 @@ class ReceivableDetailPage extends StatelessWidget {
                 formatRupiah(currentReceivable.amount),
               ),
               _DetailLine('Sisa tagihan', formatRupiah(remaining)),
+              _DetailLine(
+                'Tanggal tagihan',
+                formatShortDate(currentReceivable.issueDate),
+              ),
               _DetailLine(
                 'Jatuh tempo',
                 formatShortDate(currentReceivable.dueDate),
@@ -167,8 +169,7 @@ class ReceivableDetailPage extends StatelessWidget {
                   ],
                 ),
               ],
-              if (currentReceivable.status == ReceivableStatus.approved &&
-                  remaining > 0) ...[
+              if (currentReceivable.isApproved && !settlement.isPaid) ...[
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed:
@@ -178,7 +179,7 @@ class ReceivableDetailPage extends StatelessWidget {
                       ? () => _recordPayment(
                           context,
                           currentReceivable,
-                          bills,
+                          payments,
                           remaining,
                         )
                       : null,
@@ -189,7 +190,7 @@ class ReceivableDetailPage extends StatelessWidget {
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child: Text(
-                      'Akun Piutang (1300) belum tersedia. Minta Manager menyiapkan kategori akun.',
+                      'Akun Piutang ($receivableAccountCode) belum tersedia. Minta Manager menyiapkan kategori akun.',
                     ),
                   ),
                 if (_hasReceivableAccount && !_hasCashAccount)
@@ -207,10 +208,10 @@ class ReceivableDetailPage extends StatelessWidget {
                     ?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
-              if (bills.isEmpty)
+              if (payments.isEmpty)
                 const Text('Belum ada pembayaran.')
               else
-                for (final bill in bills) _PaymentTile(bill: bill),
+                for (final payment in payments) _PaymentTile(payment: payment),
             ],
           );
         },
@@ -239,17 +240,17 @@ class _DetailLine extends StatelessWidget {
 }
 
 class _PaymentTile extends StatelessWidget {
-  const _PaymentTile({required this.bill});
-  final Bill bill;
+  const _PaymentTile({required this.payment});
+  final FinanceTransaction payment;
 
   @override
   Widget build(BuildContext context) => ListTile(
     contentPadding: EdgeInsets.zero,
     leading: const CircleAvatar(child: Icon(Icons.payments_outlined)),
-    title: Text(formatRupiah(bill.amount)),
-    subtitle: Text('${formatShortDate(bill.date)} · ${bill.description}'),
+    title: Text(formatRupiah(payment.amount)),
+    subtitle: Text('${formatShortDate(payment.date)} · ${payment.description}'),
     trailing: Text(
-      bill.status.label,
+      payment.status.label,
       textAlign: TextAlign.end,
       style: Theme.of(context).textTheme.labelSmall,
     ),
@@ -260,7 +261,7 @@ class _RecordPaymentDialog extends StatefulWidget {
   const _RecordPaymentDialog({
     required this.receivable,
     required this.remaining,
-    required this.bills,
+    required this.payments,
     required this.company,
     required this.accounts,
     required this.repository,
@@ -268,7 +269,7 @@ class _RecordPaymentDialog extends StatefulWidget {
 
   final Receivable receivable;
   final int remaining;
-  final List<Bill> bills;
+  final List<FinanceTransaction> payments;
   final Company company;
   final List<ChartAccount> accounts;
   final TransactionsRepository repository;
@@ -289,9 +290,9 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
   int get _available {
     final available =
         widget.remaining -
-        widget.bills
-            .where((bill) => bill.status == TransactionStatus.pending)
-            .fold<int>(0, (total, bill) => total + bill.amount);
+        widget.payments
+            .where((payment) => payment.isPending)
+            .fold<int>(0, (total, payment) => total + payment.amount);
     return available > 0 ? available : 0;
   }
 
@@ -324,7 +325,7 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
       description:
           'Pembayaran piutang ${widget.receivable.number} · ${widget.receivable.customerName}',
       cashAccountId: _cashAccountId ?? '',
-      categoryAccountId: '1300',
+      categoryAccountId: receivableAccountCode,
       receivableId: widget.receivable.id,
     );
     final error = draft.validate(

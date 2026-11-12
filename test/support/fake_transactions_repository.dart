@@ -44,10 +44,11 @@ class FakeTransactionsRepository implements TransactionsRepository {
     status: status ?? tx.status,
     createdBy: tx.createdBy,
     createdAt: tx.createdAt,
-    receivableId: tx.receivableId,
     approvedBy: status == null ? tx.approvedBy : uid,
     approvedAt: status == null ? tx.approvedAt : DateTime.now(),
     rejectReason: reason ?? tx.rejectReason,
+    receivableId: draft == null ? tx.receivableId : draft.receivableId,
+    payableId: draft == null ? tx.payableId : draft.payableId,
   );
 
   void _replace(FinanceTransaction tx) {
@@ -87,6 +88,7 @@ class FakeTransactionsRepository implements TransactionsRepository {
         createdBy: uid,
         createdAt: DateTime.now(),
         receivableId: draft.receivableId,
+        payableId: draft.payableId,
       ),
     ];
     _publish();

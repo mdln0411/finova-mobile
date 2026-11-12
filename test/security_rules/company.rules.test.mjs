@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { after, before, beforeEach, test } from 'node:test';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs,
@@ -8,6 +9,9 @@ import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs,
 let env;
 const projectId = 'demo-finova-onboarding';
 const email = (uid) => `${uid}@example.com`;
+// Skema ID undangan wajib sesuai Rules: <companyId>_<sha256(email) hex>.
+const inviteId = (companyId, mail) => `${companyId}_${createHash('sha256').update(mail).digest('hex')}`;
+const INVITE = inviteId('manager', email('finance'));
 const db = (uid, verified = true) => env.authenticatedContext(uid,
   { email: email(uid), email_verified: verified }).firestore();
 const profile = (uid, completed = true) => ({ uid, displayName: 'Nama Pengguna',
@@ -42,9 +46,9 @@ function inviteData() {
 async function seedInvitation() {
   await seedCompany();
   await seedProfile('finance');
-  await assertSucceeds(setDoc(doc(db('manager'), 'company_invitations', 'invite'), inviteData()));
+  await assertSucceeds(setDoc(doc(db('manager'), 'company_invitations', INVITE), inviteData()));
 }
-function accept(store, uid = 'finance', role = 'finance', invitationId = 'invite') {
+function accept(store, uid = 'finance', role = 'finance', invitationId = INVITE) {
   const batch = writeBatch(store);
   batch.update(doc(store, 'company_invitations', invitationId), {
     status: 'accepted', acceptedBy: uid, updatedAt: serverTimestamp() });
@@ -144,22 +148,22 @@ test('Finance tidak dapat mengubah role, memindahkan membership atau membuat Man
 test('Pengguna salah dan email belum terverifikasi ditolak saat membaca/menerima undangan', async () => {
   await seedInvitation(); await seedProfile('attacker');
   await assertFails(accept(db('attacker'), 'attacker'));
-  await assertFails(getDoc(doc(db('attacker'), 'company_invitations', 'invite')));
+  await assertFails(getDoc(doc(db('attacker'), 'company_invitations', INVITE)));
   await assertFails(accept(db('finance', false)));
-  await assertFails(getDoc(doc(db('finance', false), 'company_invitations', 'invite')));
+  await assertFails(getDoc(doc(db('finance', false), 'company_invitations', INVITE)));
 });
 test('Tidak dapat menerima parsial, menaikkan role melalui undangan, atau reuse undangan dibatalkan', async () => {
   await seedInvitation();
-  await assertFails(updateDoc(doc(db('finance'), 'company_invitations', 'invite'), {
+  await assertFails(updateDoc(doc(db('finance'), 'company_invitations', INVITE), {
     status: 'accepted', acceptedBy: 'finance', updatedAt: serverTimestamp() }));
   await assertFails(accept(db('finance'), 'finance', 'manager'));
-  await assertSucceeds(updateDoc(doc(db('manager'), 'company_invitations', 'invite'), {
+  await assertSucceeds(updateDoc(doc(db('manager'), 'company_invitations', INVITE), {
     status: 'cancelled', updatedAt: serverTimestamp() }));
   await assertFails(accept(db('finance')));
 });
 test('Penerima dapat menolak; penolakan tidak membuat membership dan tidak bisa diulang', async () => {
   await seedInvitation();
-  await assertSucceeds(updateDoc(doc(db('finance'), 'company_invitations', 'invite'), {
+  await assertSucceeds(updateDoc(doc(db('finance'), 'company_invitations', INVITE), {
     status: 'rejected', updatedAt: serverTimestamp() }));
   await assertFails(accept(db('finance')));
   await assertFails(getDoc(doc(db('finance'), 'companies', 'manager')));
@@ -191,7 +195,7 @@ test('Email, companyId, role, createdBy dan field tambahan undangan tidak dapat 
   for (const changes of [{ email: email('attacker') }, { companyId: 'other' },
     { role: 'manager' }, { createdBy: 'finance' }, { permissions: ['all'] }]) {
     for (const uid of ['manager', 'finance']) {
-      await assertFails(updateDoc(doc(db(uid), 'company_invitations', 'invite'), {
+      await assertFails(updateDoc(doc(db(uid), 'company_invitations', INVITE), {
         ...changes, updatedAt: serverTimestamp() }));
     }
   }
@@ -199,8 +203,8 @@ test('Email, companyId, role, createdBy dan field tambahan undangan tidak dapat 
 test('Manager perusahaan lain tidak dapat membaca/membatalkan undangan atau menulis member lintas perusahaan', async () => {
   await seedInvitation(); await seedCompany('other');
   const store = db('other');
-  await assertFails(getDoc(doc(store, 'company_invitations', 'invite')));
-  await assertFails(updateDoc(doc(store, 'company_invitations', 'invite'), {
+  await assertFails(getDoc(doc(store, 'company_invitations', INVITE)));
+  await assertFails(updateDoc(doc(store, 'company_invitations', INVITE), {
     status: 'cancelled', updatedAt: serverTimestamp() }));
   await assertFails(setDoc(doc(store, 'company_invitations', 'forged'), {
     ...inviteData(), createdBy: 'other' }));
@@ -268,7 +272,7 @@ test('COA: akun lintas perusahaan, anonim, membership nonaktif dan profil belum 
 });
 async function seedInvitationForChartFinance() {
   await seedProfile('finance');
-  await assertSucceeds(setDoc(doc(db('manager'), 'company_invitations', 'invite'), inviteData()));
+  await assertSucceeds(setDoc(doc(db('manager'), 'company_invitations', INVITE), inviteData()));
   await assertSucceeds(accept(db('finance')));
 }
 test('COA: schema menolak saldo/otorisasi tambahan, tipe dan saldo normal tidak sesuai', async () => {
@@ -320,4 +324,83 @@ test('Logo SVG: hanya Manager yang dapat mengganti; script, on*, dan >50 KB dito
   }
   await assertFails(updateDoc(ref(db('manager')), { ...logo(svgLogo), name: 'Diubah' }));
   await assertFails(updateDoc(ref(db('manager')), { logoSvg: svgLogo }));
+});
+
+// F1: offboarding member melalui status, bukan hapus dokumen.
+const memberRef = (store, uid = 'finance') => doc(store, 'companies', 'manager', 'members', uid);
+const setStatus = (store, status, uid = 'finance', by = 'manager') => updateDoc(memberRef(store, uid), {
+  status, statusChangedBy: by, statusChangedAt: serverTimestamp() });
+async function seedActiveFinance() {
+  await seedInvitation();
+  await assertSucceeds(accept(db('finance')));
+}
+test('F1: Manager menonaktifkan Finance; Finance kehilangan akses data perusahaan', async () => {
+  await seedActiveFinance();
+  await assertSucceeds(initializeChart(db('manager')));
+  await assertSucceeds(getDoc(doc(db('finance'), 'companies', 'manager')));
+  await assertSucceeds(setStatus(db('manager'), 'inactive'));
+  const finance = db('finance');
+  await assertFails(getDoc(doc(finance, 'companies', 'manager')));
+  await assertFails(getDocs(collection(finance, 'companies', 'manager', 'chart_of_accounts')));
+  await assertFails(getDocs(collection(finance, 'companies', 'manager', 'transactions')));
+  // Dokumen member sendiri tetap terbaca agar aplikasi dapat menjelaskan alasannya.
+  const own = await assertSucceeds(getDoc(memberRef(finance)));
+  if (own.data().status !== 'inactive' || own.data().role !== 'finance') throw new Error('Member harus tetap ada');
+  // Link akses tetap, dan Finance tidak dapat bergabung ulang atau membuat perusahaan baru.
+  await assertSucceeds(getDoc(doc(finance, 'company_access', 'finance')));
+  await assertFails(bootstrap(finance, 'finance'));
+});
+test('F1: Manager mengaktifkan kembali Finance dan akses pulih', async () => {
+  await seedActiveFinance();
+  await assertSucceeds(setStatus(db('manager'), 'inactive'));
+  await assertSucceeds(setStatus(db('manager'), 'active'));
+  await assertSucceeds(getDoc(doc(db('finance'), 'companies', 'manager')));
+});
+test('F1: Finance tidak dapat mengaktifkan diri, menonaktifkan orang lain, atau mengubah status Manager', async () => {
+  await seedActiveFinance();
+  await assertFails(setStatus(db('finance'), 'inactive', 'manager', 'finance'));
+  await assertSucceeds(setStatus(db('manager'), 'inactive'));
+  await assertFails(setStatus(db('finance'), 'active', 'finance', 'finance'));
+  await assertFails(getDoc(doc(db('finance'), 'companies', 'manager')));
+});
+test('F1: Manager tidak dapat menonaktifkan diri, mengubah role/field lain, atau menghapus member', async () => {
+  await seedActiveFinance();
+  const store = db('manager');
+  await assertFails(setStatus(store, 'inactive', 'manager'));
+  await assertFails(updateDoc(memberRef(store), { status: 'inactive', role: 'manager',
+    statusChangedBy: 'manager', statusChangedAt: serverTimestamp() }));
+  await assertFails(updateDoc(memberRef(store), { status: 'inactive', invitationId: 'lain',
+    statusChangedBy: 'manager', statusChangedAt: serverTimestamp() }));
+  await assertFails(updateDoc(memberRef(store), { status: 'deleted',
+    statusChangedBy: 'manager', statusChangedAt: serverTimestamp() }));
+  await assertFails(setStatus(store, 'active'));
+  await assertFails(setStatus(store, 'inactive', 'finance', 'orang-lain'));
+  await assertFails(updateDoc(memberRef(store), { status: 'inactive' }));
+  await assertFails(deleteDoc(memberRef(store)));
+});
+test('F1: Manager perusahaan lain tidak dapat menonaktifkan Finance', async () => {
+  await seedActiveFinance(); await seedCompany('other');
+  await assertFails(setStatus(db('other'), 'inactive', 'finance', 'other'));
+  await assertSucceeds(getDoc(doc(db('finance'), 'companies', 'manager')));
+});
+
+// F2: ID undangan dikunci ke companyId + hash email.
+test('F2: undangan hanya boleh dibuat dengan ID <companyId>_<sha256(email)>', async () => {
+  await seedCompany(); await seedProfile('finance');
+  const store = db('manager');
+  for (const id of ['invite', `manager:${email('finance')}`, inviteId('manager', email('lain')),
+    inviteId('manager', email('finance')).toUpperCase(), inviteId('other', email('finance'))]) {
+    await assertFails(setDoc(doc(store, 'company_invitations', id), inviteData()));
+  }
+  await assertSucceeds(setDoc(doc(store, 'company_invitations', INVITE), inviteData()));
+});
+test('F2: Manager lain tidak dapat menyerobot ID undangan perusahaan lain', async () => {
+  await seedCompany(); await seedCompany('other');
+  // "other" mencoba memesan ID milik "manager" untuk email Finance.
+  await assertFails(setDoc(doc(db('other'), 'company_invitations', INVITE), {
+    ...inviteData(), companyId: 'other', createdBy: 'other' }));
+  // ID miliknya sendiri tetap diizinkan, dan undangan sah "manager" tetap bisa dibuat.
+  await assertSucceeds(setDoc(doc(db('other'), 'company_invitations', inviteId('other', email('finance'))), {
+    ...inviteData(), companyId: 'other', createdBy: 'other' }));
+  await assertSucceeds(setDoc(doc(db('manager'), 'company_invitations', INVITE), inviteData()));
 });

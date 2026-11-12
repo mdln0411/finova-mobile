@@ -5,14 +5,14 @@ import '../../../core/utils/rupiah.dart';
 import '../../../core/widgets/finova_card.dart';
 import '../../auth/presentation/widgets/auth_layout.dart';
 import '../../chart_of_accounts/application/chart_of_accounts_controller.dart';
-import '../../chart_of_accounts/domain/chart_account.dart';
 import '../../chart_of_accounts/domain/chart_of_accounts_repository.dart';
 import '../../company/domain/company.dart';
 import '../../transactions/domain/finance_transaction.dart';
 import '../../transactions/domain/transactions_repository.dart';
 import '../application/receivables_controller.dart';
-import '../domain/bill.dart';
+import '../../transactions/domain/bill.dart';
 import '../domain/receivable.dart';
+import '../domain/receivable_status.dart';
 import '../domain/receivables_repository.dart';
 import 'receivable_detail_page.dart';
 import 'receivable_form_page.dart';
@@ -57,12 +57,8 @@ class _ReceivablesPageState extends State<ReceivablesPage> {
     super.dispose();
   }
 
-  List<Bill> _billsFor(Receivable receivable) => _controller.bills
-      .where((bill) => bill.receivableId == receivable.id)
-      .toList();
-
-  int _remaining(Receivable receivable) =>
-      receivable.remainingAmount(_billsFor(receivable));
+  BillSettlement _settlement(Receivable receivable) =>
+      receivable.settlement(_controller.payments);
 
   Future<void> _openForm([Receivable? existing]) async {
     _controller.clearMessages();
@@ -73,10 +69,7 @@ class _ReceivablesPageState extends State<ReceivablesPage> {
           bookkeepingStartDate: widget.company.company.bookkeepingStartDate,
           revenueAccounts: _accounts.accounts
               .where(
-                (account) =>
-                    account.type == AccountType.revenue &&
-                    account.isPosting &&
-                    account.isActive,
+                (account) => isCategoryAccount(account, TransactionType.income),
               )
               .toList(),
           existing: existing,
@@ -141,8 +134,7 @@ class _ReceivablesPageState extends State<ReceivablesPage> {
   );
 
   Widget _receivableCard(Receivable receivable) {
-    final remaining = _remaining(receivable);
-    final status = receivable.paymentStatus(remaining);
+    final settlement = _settlement(receivable);
     final canEdit = receivable.canModify(widget.userId);
     return FinovaCard(
       child: Column(
@@ -178,15 +170,11 @@ class _ReceivablesPageState extends State<ReceivablesPage> {
                   spacing: 8,
                   runSpacing: 6,
                   children: [
-                    _StatusChip(
-                      label: receivable.status == ReceivableStatus.approved
-                          ? status
-                          : receivable.status.label,
-                    ),
+                    _StatusChip(label: receivable.statusLabel(settlement)),
                   ],
                 ),
                 const SizedBox(height: 8),
-                Text('Sisa tagihan: ${formatRupiah(remaining)}'),
+                Text('Sisa tagihan: ${formatRupiah(settlement.remaining)}'),
                 Text('Jatuh tempo: ${formatShortDate(receivable.dueDate)}'),
               ],
             ),
@@ -225,8 +213,7 @@ class _ReceivablesPageState extends State<ReceivablesPage> {
       final today = dateOnly(DateTime.now());
       final soon = today.add(const Duration(days: 7));
       final approvedOutstanding = _controller.receivables.where((receivable) {
-        return receivable.status == ReceivableStatus.approved &&
-            _remaining(receivable) > 0;
+        return receivable.isApproved && !_settlement(receivable).isPaid;
       }).toList();
       final dueSoon = approvedOutstanding.where((receivable) {
         final due = dateOnly(receivable.dueDate);

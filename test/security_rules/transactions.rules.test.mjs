@@ -145,7 +145,7 @@ test('TX: pembayaran piutang memakai akun Piutang dan hanya untuk piutang approv
   }));
 });
 
-test('TX: persetujuan Piutang mencatat jurnal Piutang dan Pendapatan secara atomik', async () => {
+test('TX: pengakuan Piutang tidak dicatat sebagai transaksi terpisah', async () => {
   await seedReceivable('recognition', {
     status: 'pending',
     approvedBy: null,
@@ -174,26 +174,12 @@ test('TX: persetujuan Piutang mencatat jurnal Piutang dan Pendapatan secara atom
     approvedAt: serverTimestamp(),
     rejectReason: null,
   }));
-  await assertSucceeds(batch.commit());
-
-  await seedReceivable('not-approved', {
-    status: 'pending',
-    approvedBy: null,
-    approvedAt: null,
-  });
-  const invalidBatch = writeBatch(store);
-  invalidBatch.set(txRef(store, 'receivable-not-approved'), tx('manager', {
+  await assertFails(batch.commit());
+  await assertFails(setDoc(txRef(store, 'debit-piutang'), tx('manager', {
     type: 'income',
     cashAccountId: '1300',
     categoryAccountId: '4100',
-    receivableId: 'not-approved',
-    status: 'approved',
-    createdBy: 'manager',
-    approvedBy: 'manager',
-    approvedAt: serverTimestamp(),
-    rejectReason: null,
-  }));
-  await assertFails(invalidBatch.commit());
+  })));
 });
 
 test('TX: anonim, perusahaan lain dan membership nonaktif ditolak', async () => {

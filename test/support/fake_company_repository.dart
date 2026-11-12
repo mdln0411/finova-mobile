@@ -99,6 +99,35 @@ class FakeCompanyRepository implements CompanyRepository {
     pending = [];
   }
 
+  List<CompanyMember> team = const [];
+  final statusChanges = <(String, bool)>[];
+  @override
+  Future<List<CompanyMember>> members(String companyId) async {
+    if (failure != null) throw failure!;
+    return team;
+  }
+
+  @override
+  Future<void> setMemberActive(
+    String companyId,
+    String uid, {
+    required bool active,
+  }) async {
+    if (failure != null) throw failure!;
+    statusChanges.add((uid, active));
+    team = [
+      for (final m in team)
+        m.uid == uid
+            ? CompanyMember(
+                uid: m.uid,
+                role: m.role,
+                active: active,
+                email: m.email,
+              )
+            : m,
+    ];
+  }
+
   @override
   Future<bool> refreshVerifiedEmail() async => verified;
   @override
