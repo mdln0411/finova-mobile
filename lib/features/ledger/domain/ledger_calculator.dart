@@ -44,7 +44,9 @@ class AccountLedger {
 /// Hanya transaksi `approved` yang diproses; status lain diabaikan.
 ///
 /// Double-entry:
-/// - income : debit akun Kas/Bank, kredit akun Pendapatan.
+/// - income : debit [FinanceTransaction.cashAccountId], kredit kategori.
+///   Pengakuan piutang memakai akun 1300 di sisi debit; pembayaran memakai
+///   akun 1300 di sisi kredit.
 /// - expense: debit akun Beban, kredit akun Kas/Bank.
 abstract final class LedgerCalculator {
   /// Sisi debit dan kredit sebuah transaksi.
