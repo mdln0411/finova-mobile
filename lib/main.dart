@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'app/app.dart';
+import 'app/bootstrap.dart';
 
-void main() => runApp(const FinovaApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final controller = await tryInitializeAuthentication();
+  runApp(FinovaBootstrap(initialController: controller));
+}

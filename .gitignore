@@ -49,6 +49,7 @@ unlinked_spec.ds
 # Android related
 **/android/**/gradle-wrapper.jar
 .gradle/
+**/android/.kotlin/
 **/android/captures/
 **/android/gradlew
 **/android/gradlew.bat
@@ -123,3 +124,15 @@ app.*.symbols
 
 # Track Flutter dependency lockfile
 !pubspec.lock
+
+# Dependensi pengujian Security Rules lokal
+test/security_rules/node_modules/
+firebase-debug.log
+firestore-debug.log
+
+# Konfigurasi Firebase lokal dan dependensi Node
+google-services.json
+lib/firebase_options.dart
+node_modules/
+*.log
+audit_finova.md
