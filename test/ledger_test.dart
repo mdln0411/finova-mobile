@@ -76,7 +76,7 @@ void main() {
 
     test('Akun aset (saldo normal debit): saldo berjalan dan saldo akhir', () {
       final ledger = LedgerCalculator.forAccount(account('1100'), items);
-      expect(ledger.entries.map((e) => e.transactionId), [
+      expect(ledger.entries.map((e) => e.sourceId), [
         'in1',
         'ex1',
         'in2',
@@ -169,7 +169,7 @@ void main() {
           to: DateTime(2026, 3, 10),
         );
         expect(ledger.openingBalance, 1000000);
-        expect(ledger.entries.map((e) => e.transactionId), ['ex1', 'in2']);
+        expect(ledger.entries.map((e) => e.sourceId), ['ex1', 'in2']);
         expect(ledger.entries.map((e) => e.balance), [750000, 1250000]);
         expect(ledger.closingBalance, 1250000);
       },
@@ -207,7 +207,7 @@ void main() {
           tx('a', date: day, createdAt: DateTime.utc(2026, 3, 1, 9)),
         ];
         final ledger = LedgerCalculator.forAccount(account('5900'), input);
-        expect(ledger.entries.map((e) => e.transactionId), ['c', 'a', 'b']);
+        expect(ledger.entries.map((e) => e.sourceId), ['c', 'a', 'b']);
         expect(input.map((e) => e.id), ['b', 'c', 'a']);
       },
     );

@@ -1,5 +1,10 @@
 import 'chart_account.dart';
 
+/// Akun kontrol tagihan. Pembayaran piutang/utang wajib memakai akun ini
+/// sebagai `categoryAccountId` agar pendapatan/beban tidak tercatat dua kali.
+const receivableAccountCode = '1300';
+const payableAccountCode = '2100';
+
 // ID dokumen = kode akun agar inisialisasi/retry tidak menggandakan akun.
 final defaultChartOfAccounts = List<ChartAccount>.unmodifiable([
   for (final type in AccountType.values)
