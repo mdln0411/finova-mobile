@@ -7,6 +7,8 @@ import '../../features/menu/presentation/menu_page.dart';
 import '../../features/transactions/presentation/transactions_page.dart';
 import '../../features/approvals/presentation/approvals_page.dart';
 import '../../features/receivables/presentation/receivables_page.dart';
+import '../../features/receivables/domain/receivables_repository.dart';
+import '../../features/receivables/data/firebase_receivables_repository.dart';
 import '../../features/payables/presentation/payables_page.dart';
 import '../../features/accounts/presentation/accounts_page.dart';
 import '../../features/reports/presentation/reports_page.dart';
@@ -35,12 +37,14 @@ GoRouter createAppRouter({
   ChartOfAccountsRepository? chartRepository,
   TransactionsRepository? transactionsRepository,
   LedgerRepository? ledgerRepository,
+  ReceivablesRepository? receivablesRepository,
   String initialLocation = '/',
 }) {
   final coaRepository = chartRepository ?? FirebaseChartOfAccountsRepository();
   final txRepository =
       transactionsRepository ?? FirebaseTransactionsRepository();
   final glRepository = ledgerRepository ?? FirebaseLedgerRepository();
+  final arRepository = receivablesRepository ?? FirebaseReceivablesRepository();
   Widget companyScoped(Widget Function(CompanyContext current) builder) =>
       ListenableBuilder(
         listenable: company,
@@ -201,7 +205,16 @@ GoRouter createAppRouter({
           GoRoute(path: '/menu', builder: (context, state) => const MenuPage()),
           GoRoute(
             path: '/receivables',
-            builder: (context, state) => const ReceivablesPage(),
+            builder: (context, state) => companyScoped(
+              (current) => ReceivablesPage(
+                key: ValueKey('ar:${current.company.id}:${current.role.name}'),
+                company: current,
+                userId: auth.user?.uid,
+                repository: arRepository,
+                transactionsRepository: txRepository,
+                chartRepository: coaRepository,
+              ),
+            ),
           ),
           GoRoute(
             path: '/payables',

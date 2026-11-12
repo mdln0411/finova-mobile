@@ -80,6 +80,8 @@ void main() {
               ? 'Kategori akun belum tersedia. Minta Manager menyiapkannya.'
               : destination == AppDestination.accounts
               ? 'Akun Kas/Bank belum tersedia. Minta Manager menyiapkan kategori akun.'
+              : destination == AppDestination.receivables
+              ? 'Piutang'
               : 'Ruang untuk langkah berikutnya',
         ),
         findsOneWidget,

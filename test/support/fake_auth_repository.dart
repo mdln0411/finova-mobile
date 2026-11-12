@@ -2,6 +2,7 @@ import 'fake_company_repository.dart';
 import 'fake_chart_of_accounts_repository.dart';
 import 'fake_transactions_repository.dart';
 import 'fake_ledger_repository.dart';
+import 'fake_receivables_repository.dart';
 
 import 'dart:async';
 
@@ -148,10 +149,15 @@ Future<AuthController> readyAuth({FakeAuthRepository? repository}) async {
   return auth;
 }
 
-Future<FinovaApp> authenticatedApp() async => FinovaApp(
-  authController: await readyAuth(),
-  companyRepository: FakeCompanyRepository(),
-  chartRepository: FakeChartOfAccountsRepository(),
-  transactionsRepository: FakeTransactionsRepository(),
-  ledgerRepository: FakeLedgerRepository(),
-);
+Future<FinovaApp> authenticatedApp() async {
+  final receivables = FakeReceivablesRepository();
+  addTearDown(receivables.dispose);
+  return FinovaApp(
+    authController: await readyAuth(),
+    companyRepository: FakeCompanyRepository(),
+    chartRepository: FakeChartOfAccountsRepository(),
+    transactionsRepository: FakeTransactionsRepository(),
+    ledgerRepository: FakeLedgerRepository(),
+    receivablesRepository: receivables,
+  );
+}
