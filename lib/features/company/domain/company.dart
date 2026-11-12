@@ -120,7 +120,32 @@ class CompanyInvitation {
   final String status;
 }
 
+/// Anggota perusahaan seperti yang terlihat oleh Manager.
+class CompanyMember {
+  const CompanyMember({
+    required this.uid,
+    required this.role,
+    required this.active,
+    this.email,
+  });
+  final String uid;
+  final CompanyRole role;
+  final bool active;
+
+  /// Email dari undangan yang diterima; null untuk Manager pendiri.
+  final String? email;
+}
+
 class CompanyFailure implements Exception {
   const CompanyFailure(this.message);
   final String message;
+}
+
+/// Membership dinonaktifkan Manager; sesi harus diakhiri.
+class MembershipRevokedFailure extends CompanyFailure {
+  const MembershipRevokedFailure()
+    : super(
+        'Akses Anda ke perusahaan telah dinonaktifkan oleh Manager. '
+        'Hubungi Manager jika ini keliru.',
+      );
 }

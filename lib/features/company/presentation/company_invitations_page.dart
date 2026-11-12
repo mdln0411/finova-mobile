@@ -5,6 +5,7 @@ import '../../../core/widgets/finova_card.dart';
 import '../../auth/domain/auth_validators.dart';
 import '../../auth/presentation/widgets/auth_layout.dart';
 import '../application/company_controller.dart';
+import '../domain/company.dart';
 
 class CompanyInvitationsPage extends StatefulWidget {
   const CompanyInvitationsPage({
@@ -179,9 +180,105 @@ class _CompanyInvitationsPageState extends State<CompanyInvitationsPage> {
               ),
               const SizedBox(height: 16),
             ],
+            if (widget.manage && !busy) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Anggota tim',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Finance nonaktif langsung kehilangan akses ke data perusahaan '
+                'dan dikeluarkan dari aplikasi. Data anggota tidak dihapus.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              if (!controller.members.any((m) => m.role == CompanyRole.finance))
+                const FinovaCard(child: Text('Belum ada anggota Finance.')),
+              for (final member in controller.members)
+                if (member.role == CompanyRole.finance) ...[
+                  _MemberCard(
+                    member: member,
+                    onToggle: () => _toggle(member),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+            ],
           ],
         ),
       );
     },
+  );
+
+  Future<void> _toggle(CompanyMember member) async {
+    final name = member.email ?? 'anggota ini';
+    if (member.active) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Nonaktifkan Finance?'),
+          content: Text(
+            '$name tidak dapat lagi membuka data perusahaan dan akan '
+            'dikeluarkan dari aplikasi. Anda dapat mengaktifkannya kembali.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Nonaktifkan'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    final success = await widget.controller.setMemberActive(
+      member.uid,
+      active: !member.active,
+    );
+    if (mounted && success) {
+      setState(
+        () => _notice = member.active
+            ? '$name dinonaktifkan.'
+            : '$name diaktifkan kembali.',
+      );
+    }
+  }
+}
+
+class _MemberCard extends StatelessWidget {
+  const _MemberCard({required this.member, required this.onToggle});
+  final CompanyMember member;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) => FinovaCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          member.email ?? member.uid,
+          style: Theme.of(context).textTheme.titleSmall,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 4),
+        Text('Finance · ${member.active ? 'Aktif' : 'Nonaktif'}'),
+        const SizedBox(height: 12),
+        member.active
+            ? OutlinedButton.icon(
+                onPressed: onToggle,
+                icon: const Icon(Icons.person_off_outlined),
+                label: const Text('Nonaktifkan'),
+              )
+            : FilledButton.icon(
+                onPressed: onToggle,
+                icon: const Icon(Icons.person_add_alt_1_outlined),
+                label: const Text('Aktifkan kembali'),
+              ),
+      ],
+    ),
   );
 }
