@@ -11,6 +11,7 @@ abstract final class TransactionCodec {
     'description': draft.description.trim(),
     'cashAccountId': draft.cashAccountId,
     'categoryAccountId': draft.categoryAccountId,
+    if (draft.receivableId != null) 'receivableId': draft.receivableId,
   };
 
   static FinanceTransaction fromDocument(String id, Map<String, dynamic> data) {
@@ -26,6 +27,7 @@ abstract final class TransactionCodec {
     final approvedAt = data['approvedAt'];
     final approvedBy = data['approvedBy'];
     final reason = data['rejectReason'];
+    final receivableId = data['receivableId'];
     if (type == null ||
         status == null ||
         amount is! int ||
@@ -35,6 +37,7 @@ abstract final class TransactionCodec {
         data['cashAccountId'] is! String ||
         data['categoryAccountId'] is! String ||
         data['createdBy'] is! String ||
+        (receivableId != null && receivableId is! String) ||
         createdAt is! Timestamp ||
         (approvedAt != null && approvedAt is! Timestamp) ||
         (approvedBy != null && approvedBy is! String) ||
@@ -54,6 +57,7 @@ abstract final class TransactionCodec {
       status: status,
       createdBy: data['createdBy'] as String,
       createdAt: createdAt.toDate(),
+      receivableId: receivableId as String?,
       approvedBy: approvedBy as String?,
       approvedAt: (approvedAt as Timestamp?)?.toDate(),
       rejectReason: reason as String?,
