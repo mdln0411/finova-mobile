@@ -162,22 +162,56 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
-      // Transaksi pemasukan/pengeluaran. Status awal selalu pending; hanya
-      // pembuat yang dapat edit/hapus selama pending; hanya Manager yang
-      // memutuskan. Transaksi approved/rejected immutable.
-      match /transactions/{txId} {
+      // Piutang mengikuti alur persetujuan yang sama dengan transaksi.
+      match /receivables/{receivableId} {
         allow get, list: if activeCompany(companyId);
         allow create: if activeCompany(companyId)
-          && validTransactionBody(companyId)
-          && request.resource.data.keys().hasAll(['type', 'amount', 'date',
-            'description', 'cashAccountId', 'categoryAccountId', 'status',
-            'createdBy', 'createdAt', 'approvedBy', 'approvedAt', 'rejectReason'])
+          && validReceivableBody(companyId)
           && request.resource.data.status == 'pending'
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.createdAt == request.time
           && request.resource.data.approvedBy == null
           && request.resource.data.approvedAt == null
           && request.resource.data.rejectReason == null;
+        allow update: if activeCompany(companyId)
+          && resource.data.status == 'pending'
+          && ((resource.data.createdBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'customerName', 'number', 'amount', 'revenueAccountId',
+                'dueDate', 'description'])
+              && validReceivableBody(companyId))
+            || (manager(companyId)
+              && validDecision()
+              && (request.resource.data.status == 'rejected'
+                || validRecognitionAfter(
+                  companyId,
+                  receivableId,
+                  request.resource.data.amount,
+                  resource.data.revenueAccountId
+                ))));
+        allow delete: if activeCompany(companyId)
+          && resource.data.status == 'pending'
+          && resource.data.createdBy == request.auth.uid;
+      }
+
+      // Transaksi pemasukan/pengeluaran. Status awal selalu pending; hanya
+      // pembuat yang dapat edit/hapus selama pending; hanya Manager yang
+      // memutuskan. Transaksi approved/rejected immutable.
+      match /transactions/{txId} {
+        allow get, list: if activeCompany(companyId);
+        allow create: if activeCompany(companyId)
+          && ((validTransactionBody(companyId)
+              && request.resource.data.keys().hasAll(['type', 'amount', 'date',
+                'description', 'cashAccountId', 'categoryAccountId', 'status',
+                'createdBy', 'createdAt', 'approvedBy', 'approvedAt', 'rejectReason'])
+              && request.resource.data.status == 'pending'
+              && request.resource.data.createdBy == request.auth.uid
+              && request.resource.data.createdAt == request.time
+              && request.resource.data.approvedBy == null
+              && request.resource.data.approvedAt == null
+              && request.resource.data.rejectReason == null)
+            || (manager(companyId)
+              && validReceivableRecognition(companyId, txId)));
         allow update: if activeCompany(companyId)
           && resource.data.status == 'pending'
           && ((resource.data.createdBy == request.auth.uid
@@ -209,7 +243,7 @@ service cloud.firestore {
       let category = coaAccount(companyId, d.categoryAccountId);
       return d.keys().hasOnly(['type', 'amount', 'date', 'description',
           'cashAccountId', 'categoryAccountId', 'status', 'createdBy',
-          'createdAt', 'approvedBy', 'approvedAt', 'rejectReason'])
+          'createdAt', 'approvedBy', 'approvedAt', 'rejectReason', 'receivableId'])
         && d.type in ['income', 'expense']
         && d.amount is int && d.amount > 0 && d.amount <= 999999999999999
         && d.date is timestamp
@@ -220,9 +254,100 @@ service cloud.firestore {
         && d.description.matches('(?s).*[^[:space:]].*')
         && d.cashAccountId is string && d.cashAccountId.matches('^1[12][0-9]{2}$')
         && cash.type == 'asset' && cash.isPosting == true && cash.isActive == true
-        && d.categoryAccountId is string && d.categoryAccountId.matches('^[45][0-9]{3}$')
-        && category.type == (d.type == 'income' ? 'revenue' : 'expense')
-        && category.isPosting == true && category.isActive == true;
+        && d.categoryAccountId is string
+        && category.isPosting == true && category.isActive == true
+        && (d.get('receivableId', null) == null
+          ? (d.categoryAccountId.matches('^[45][0-9]{3}$')
+              && category.type == (d.type == 'income' ? 'revenue' : 'expense'))
+          : (d.receivableId is string && d.receivableId.size() > 0
+              && d.type == 'income' && d.categoryAccountId == '1300'
+              && category.type == 'asset'
+              && get(/databases/$(database)/documents/companies/$(companyId)/receivables/$(d.receivableId)).data.status == 'approved'));
+    }
+
+    function validReceivableBody(companyId) {
+      let d = request.resource.data;
+      let revenue = coaAccount(companyId, d.revenueAccountId);
+      return d.keys().hasAll(['customerName', 'number', 'amount', 'dueDate',
+          'description', 'revenueAccountId', 'status', 'createdBy', 'createdAt',
+          'approvedBy', 'approvedAt', 'rejectReason'])
+        && d.keys().hasOnly(['customerName', 'number', 'amount', 'dueDate',
+          'description', 'revenueAccountId', 'status', 'createdBy', 'createdAt',
+          'approvedBy', 'approvedAt', 'rejectReason'])
+        && d.customerName is string && d.customerName.size() >= 2
+        && d.customerName.size() <= 100
+        && d.customerName.matches('(?s).*[^[:space:]].*')
+        && d.number is string && d.number.size() >= 1 && d.number.size() <= 50
+        && d.number.matches('(?s).*[^[:space:]].*')
+        && d.amount is int && d.amount > 0 && d.amount <= 999999999999999
+        && d.revenueAccountId is string
+        && d.revenueAccountId.matches('^4[0-9]{3}$')
+        && revenue.type == 'revenue' && revenue.isPosting == true
+        && revenue.isActive == true
+        && d.dueDate is timestamp
+        && d.dueDate >= get(/databases/$(database)/documents/companies/$(companyId)).data.bookkeepingStartDate
+        && d.dueDate < timestamp.date(2101, 1, 1)
+        && d.description is string && d.description.size() <= 200
+        && (d.description == '' || d.description.matches('(?s).*[^[:space:]].*'));
+    }
+
+    function validReceivableRecognition(companyId, txId) {
+      let d = request.resource.data;
+      let receivableRef = /databases/$(database)/documents/companies/$(companyId)/receivables/$(d.receivableId);
+      let receivable = get(receivableRef).data;
+      let receivableAfter = getAfter(receivableRef).data;
+      let revenue = coaAccount(companyId, d.categoryAccountId);
+      return d.keys().hasAll(['type', 'amount', 'date', 'description',
+          'cashAccountId', 'categoryAccountId', 'status', 'createdBy',
+          'createdAt', 'approvedBy', 'approvedAt', 'rejectReason', 'receivableId'])
+        && d.keys().hasOnly(['type', 'amount', 'date', 'description',
+          'cashAccountId', 'categoryAccountId', 'status', 'createdBy',
+          'createdAt', 'approvedBy', 'approvedAt', 'rejectReason', 'receivableId'])
+        && d.receivableId is string && d.receivableId.size() > 0
+        && txId == 'receivable-' + d.receivableId
+        && receivable.status == 'pending'
+        && receivableAfter.status == 'approved'
+        && receivableAfter.approvedBy == request.auth.uid
+        && receivableAfter.approvedAt == request.time
+        && d.type == 'income'
+        && d.amount is int && d.amount > 0
+        && d.amount == receivable.amount
+        && d.date is timestamp && d.date == request.time
+        && d.description is string
+        && d.description.size() >= 1 && d.description.size() <= 200
+        && d.description.matches('(?s).*[^[:space:]].*')
+        && d.cashAccountId == '1300'
+        && d.categoryAccountId == receivable.revenueAccountId
+        && d.categoryAccountId.matches('^4[0-9]{3}$')
+        && revenue.type == 'revenue' && revenue.isPosting == true
+        && revenue.isActive == true
+        && d.status == 'approved'
+        && d.createdBy == request.auth.uid
+        && d.createdAt == request.time
+        && d.approvedBy == request.auth.uid
+        && d.approvedAt == request.time
+        && d.rejectReason == null;
+    }
+
+    function validRecognitionAfter(
+      companyId,
+      receivableId,
+      amount,
+      revenueAccountId
+    ) {
+      let transactionId = 'receivable-' + receivableId;
+      let recognition = getAfter(
+        /databases/$(database)/documents/companies/$(companyId)/transactions/$(transactionId)
+      ).data;
+      return recognition.status == 'approved'
+        && recognition.type == 'income'
+        && recognition.amount == amount
+        && recognition.cashAccountId == '1300'
+        && recognition.categoryAccountId == revenueAccountId
+        && recognition.receivableId == receivableId
+        && recognition.createdBy == request.auth.uid
+        && recognition.approvedBy == request.auth.uid
+        && recognition.approvedAt == request.time;
     }
 
     // Keputusan Manager: approvedBy/approvedAt mencatat pengambil keputusan.

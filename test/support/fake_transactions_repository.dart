@@ -44,6 +44,7 @@ class FakeTransactionsRepository implements TransactionsRepository {
     status: status ?? tx.status,
     createdBy: tx.createdBy,
     createdAt: tx.createdAt,
+    receivableId: tx.receivableId,
     approvedBy: status == null ? tx.approvedBy : uid,
     approvedAt: status == null ? tx.approvedAt : DateTime.now(),
     rejectReason: reason ?? tx.rejectReason,
@@ -85,6 +86,7 @@ class FakeTransactionsRepository implements TransactionsRepository {
         status: TransactionStatus.pending,
         createdBy: uid,
         createdAt: DateTime.now(),
+        receivableId: draft.receivableId,
       ),
     ];
     _publish();

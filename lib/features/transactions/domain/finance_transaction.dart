@@ -55,6 +55,7 @@ class FinanceTransaction {
     required this.status,
     required this.createdBy,
     required this.createdAt,
+    this.receivableId,
     this.approvedBy,
     this.approvedAt,
     this.rejectReason,
@@ -64,11 +65,14 @@ class FinanceTransaction {
   final int amount;
   final DateTime date;
   final String description;
+
+  /// Akun debit; untuk pengakuan piutang berisi akun Piutang (1300).
   final String cashAccountId;
   final String categoryAccountId;
   final TransactionStatus status;
   final String createdBy;
   final DateTime createdAt;
+  final String? receivableId;
 
   /// Pengambil keputusan (setujui atau tolak).
   final String? approvedBy;
@@ -85,6 +89,7 @@ class FinanceTransaction {
     description: description,
     cashAccountId: cashAccountId,
     categoryAccountId: categoryAccountId,
+    receivableId: receivableId,
   );
 }
 
@@ -96,6 +101,7 @@ class TransactionDraft {
     required this.description,
     required this.cashAccountId,
     required this.categoryAccountId,
+    this.receivableId,
   });
   final TransactionType type;
   final int amount;
@@ -103,6 +109,7 @@ class TransactionDraft {
   final String description;
   final String cashAccountId;
   final String categoryAccountId;
+  final String? receivableId;
 
   /// Validasi client untuk UX. Rules tetap menjadi pengaman utama.
   String? validate({
@@ -132,6 +139,19 @@ class TransactionDraft {
     final category = accounts
         .where((a) => a.code == categoryAccountId)
         .firstOrNull;
+    if (receivableId != null) {
+      if (receivableId!.isEmpty || type != TransactionType.income) {
+        return 'Pembayaran piutang harus berupa pemasukan yang valid.';
+      }
+      if (category == null ||
+          category.code != '1300' ||
+          category.type != AccountType.asset ||
+          !category.isPosting ||
+          !category.isActive) {
+        return 'Pilih akun Piutang (1300) untuk pembayaran piutang.';
+      }
+      return null;
+    }
     if (category == null || !isCategoryAccount(category, type)) {
       return type == TransactionType.income
           ? 'Pilih kategori akun Pendapatan.'

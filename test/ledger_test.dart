@@ -23,6 +23,7 @@ FinanceTransaction tx(
   DateTime? date,
   String cash = '1100',
   String? category,
+  String? receivableId,
   TransactionStatus status = TransactionStatus.approved,
   DateTime? createdAt,
 }) => FinanceTransaction(
@@ -34,6 +35,7 @@ FinanceTransaction tx(
   cashAccountId: cash,
   categoryAccountId:
       category ?? (type == TransactionType.income ? '4100' : '5900'),
+  receivableId: receivableId,
   status: status,
   createdBy: 'test-user',
   createdAt: createdAt ?? DateTime.utc(2026, 3, 1, 8),
@@ -47,6 +49,45 @@ void main() {
       );
       expect(p.debit, '1200');
       expect(p.credit, '4200');
+    });
+
+    test('pengakuan piutang mendebit Piutang, pembayaran mengkreditnya', () {
+      final recognition = tx(
+        'ar',
+        type: TransactionType.income,
+        amount: 150000,
+        cash: '1300',
+        category: '4100',
+        receivableId: 'r1',
+      );
+      final payment = tx(
+        'payment',
+        type: TransactionType.income,
+        amount: 50000,
+        cash: '1100',
+        category: '1300',
+        receivableId: 'r1',
+      );
+      final recognitionPosting = LedgerCalculator.postingOf(recognition);
+      final paymentPosting = LedgerCalculator.postingOf(payment);
+      expect(recognitionPosting.debit, '1300');
+      expect(recognitionPosting.credit, '4100');
+      expect(paymentPosting.debit, '1100');
+      expect(paymentPosting.credit, '1300');
+      expect(
+        LedgerCalculator.forAccount(account('1300'), [
+          recognition,
+          payment,
+        ]).closingBalance,
+        100000,
+      );
+      expect(
+        LedgerCalculator.forAccount(account('4100'), [
+          recognition,
+          payment,
+        ]).closingBalance,
+        150000,
+      );
     });
 
     test('expense: debit Beban, kredit Kas/Bank', () {
