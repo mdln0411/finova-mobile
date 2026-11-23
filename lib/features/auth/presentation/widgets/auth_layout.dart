@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../app/theme/app_colors.dart';
+import '../../../../core/widgets/finova_logo.dart';
 
 class AuthLayout extends StatelessWidget {
   const AuthLayout({
@@ -27,37 +28,7 @@ class AuthLayout extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Icon(
-                        Icons.stacked_line_chart_rounded,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Flexible(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'finova',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -1,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                const FinovaBrand(),
                 const SizedBox(height: 36),
                 Align(
                   alignment: Alignment.centerLeft,
