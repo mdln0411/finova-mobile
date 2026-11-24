@@ -175,17 +175,16 @@ class FirebaseCompanyRepository implements CompanyRepository {
           companyReady = true;
           emit();
         }, onError: fail);
-    final memberSub = memberRef
-        .snapshots(includeMetadataChanges: true)
-        .listen((snapshot) {
-          if (snapshot.metadata.isFromCache ||
-              snapshot.metadata.hasPendingWrites) {
-            return;
-          }
-          member = snapshot.data();
-          memberReady = true;
-          emit();
-        }, onError: fail);
+    final memberSub = memberRef.snapshots(includeMetadataChanges: true).listen((
+      snapshot,
+    ) {
+      if (snapshot.metadata.isFromCache || snapshot.metadata.hasPendingWrites) {
+        return;
+      }
+      member = snapshot.data();
+      memberReady = true;
+      emit();
+    }, onError: fail);
     // Tidak membuka Dashboard dari cache atau write lokal yang belum disetujui.
     final timer = Timer(const Duration(seconds: 25), () {
       if (!companyReady || !memberReady) {
@@ -328,7 +327,9 @@ class FirebaseCompanyRepository implements CompanyRepository {
   }) => _guard(() async {
     final self = _user.uid;
     if (uid == self) {
-      throw const CompanyFailure('Anda tidak dapat mengubah status akun sendiri.');
+      throw const CompanyFailure(
+        'Anda tidak dapat mengubah status akun sendiri.',
+      );
     }
     await _store
         .collection('companies')

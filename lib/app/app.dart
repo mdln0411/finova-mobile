@@ -11,6 +11,7 @@ import '../features/ledger/domain/ledger_repository.dart';
 import '../features/receivables/domain/receivables_repository.dart';
 
 import 'routes/app_router.dart';
+import 'splash_gate.dart';
 import 'theme/app_theme.dart';
 
 class FinovaApp extends StatefulWidget {
@@ -54,10 +55,13 @@ class _FinovaAppState extends State<FinovaApp> {
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp.router(
-    title: 'Finova',
-    debugShowCheckedModeBanner: false,
-    theme: AppTheme.light,
-    routerConfig: _router,
+  Widget build(BuildContext context) => SplashGate(
+    auth: widget.authController,
+    child: MaterialApp.router(
+      title: 'Finova',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      routerConfig: _router,
+    ),
   );
 }

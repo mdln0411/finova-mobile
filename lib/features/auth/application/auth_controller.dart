@@ -128,6 +128,7 @@ class AuthController extends ChangeNotifier {
       _authenticate(() => _repository.register(name, email, password));
   Future<bool> signInWithGoogle() =>
       _authenticate(_repository.signInWithGoogle);
+
   /// [notice] ditampilkan di halaman Login setelah keluar, mis. akses dicabut.
   Future<bool> signOut({String? notice}) async {
     final success = await _authenticate(_repository.signOut);

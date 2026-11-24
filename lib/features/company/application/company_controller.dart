@@ -171,11 +171,8 @@ class CompanyController extends ChangeNotifier {
     final current = context;
     if (current?.role != CompanyRole.manager || uid == _uid) return false;
     final success = await _action(
-      () => _repository.setMemberActive(
-        current!.company.id,
-        uid,
-        active: active,
-      ),
+      () =>
+          _repository.setMemberActive(current!.company.id, uid, active: active),
     );
     if (success) await loadInvitations();
     return success;

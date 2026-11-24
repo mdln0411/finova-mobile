@@ -197,10 +197,7 @@ class _CompanyInvitationsPageState extends State<CompanyInvitationsPage> {
                 const FinovaCard(child: Text('Belum ada anggota Finance.')),
               for (final member in controller.members)
                 if (member.role == CompanyRole.finance) ...[
-                  _MemberCard(
-                    member: member,
-                    onToggle: () => _toggle(member),
-                  ),
+                  _MemberCard(member: member, onToggle: () => _toggle(member)),
                   const SizedBox(height: 12),
                 ],
             ],

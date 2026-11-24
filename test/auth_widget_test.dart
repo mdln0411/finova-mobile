@@ -2,6 +2,7 @@ import 'support/fake_company_repository.dart';
 
 import 'dart:async';
 
+import 'package:finova/core/widgets/finova_logo.dart';
 import 'package:finova/app/app.dart';
 import 'package:finova/app/bootstrap.dart';
 import 'package:finova/app/routes/app_router.dart';
@@ -153,11 +154,65 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    expect(find.text('Menyiapkan ruang kerja.'), findsOneWidget);
+    expect(find.byType(FinovaSplash), findsOneWidget);
     expect(find.text('Rp 48.750.000'), findsNothing);
     repo.emit(null);
     await tester.pumpAndSettle();
     expect(find.text('Selamat datang kembali.'), findsOneWidget);
+  });
+
+  testWidgets('Splash menunggu animasi selesai walau sesi sudah siap', (
+    tester,
+  ) async {
+    final repo = FakeAuthRepository(emitInitial: false);
+    final auth = await readyAuth(repository: repo);
+    await tester.pumpWidget(
+      FinovaApp(
+        authController: auth,
+        companyRepository: FakeCompanyRepository(),
+      ),
+    );
+    await tester.pump();
+    repo.emit(null);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byType(FinovaSplash), findsOneWidget);
+    expect(find.text('Selamat datang kembali.'), findsNothing);
+    await tester.pump(FinovaSplash.duration);
+    await tester.pumpAndSettle();
+    expect(find.text('Selamat datang kembali.'), findsOneWidget);
+  });
+
+  testWidgets('Splash tetap tampil saat pengguna sudah login', (tester) async {
+    final repo = FakeAuthRepository(initialUser: testUser);
+    final auth = await readyAuth(repository: repo);
+    await tester.pumpWidget(
+      FinovaApp(
+        authController: auth,
+        companyRepository: FakeCompanyRepository(),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byType(FinovaSplash), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.byType(FinovaSplash), findsNothing);
+  });
+
+  testWidgets('Splash memakai fade singkat saat reduce motion aktif', (
+    tester,
+  ) async {
+    var completed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: FinovaSplash(onCompleted: () => completed = true),
+        ),
+      ),
+    );
+    expect(find.byType(ShaderMask), findsNothing);
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(completed, isTrue);
   });
 
   testWidgets(
