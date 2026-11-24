@@ -111,22 +111,31 @@ void main() {
     expect(find.text('Finance · Aktif'), findsOneWidget);
   });
 
-  test('Controller menolak non-Manager dan perubahan status diri sendiri', () async {
-    final auth = await readyAuth();
-    final repo = FakeCompanyRepository()
-      ..value = CompanyContext(
-        company: testCompany.company,
-        role: CompanyRole.finance,
+  test(
+    'Controller menolak non-Manager dan perubahan status diri sendiri',
+    () async {
+      final auth = await readyAuth();
+      final repo = FakeCompanyRepository()
+        ..value = CompanyContext(
+          company: testCompany.company,
+          role: CompanyRole.finance,
+        );
+      final finance = await readyCompany(auth, repository: repo);
+      expect(
+        await finance.setMemberActive('finance-1', active: false),
+        isFalse,
       );
-    final finance = await readyCompany(auth, repository: repo);
-    expect(await finance.setMemberActive('finance-1', active: false), isFalse);
 
-    repo.value = testCompany;
-    finance.retry();
-    await flushAuth();
-    expect(await finance.setMemberActive(testUser.uid, active: false), isFalse);
-    expect(repo.statusChanges, isEmpty);
-  });
+      repo.value = testCompany;
+      finance.retry();
+      await flushAuth();
+      expect(
+        await finance.setMemberActive(testUser.uid, active: false),
+        isFalse,
+      );
+      expect(repo.statusChanges, isEmpty);
+    },
+  );
 
   testWidgets('Finance yang dinonaktifkan dikeluarkan ke Login dengan pesan', (
     tester,
@@ -152,10 +161,7 @@ void main() {
 
     expect(authRepo.signOutCalls, 1);
     expect(find.text('Selamat datang kembali.'), findsOneWidget);
-    expect(
-      find.text(const MembershipRevokedFailure().message),
-      findsOneWidget,
-    );
+    expect(find.text(const MembershipRevokedFailure().message), findsOneWidget);
     expect(find.text(testCompany.company.name), findsNothing);
   });
 
