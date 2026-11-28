@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../core/utils/rupiah.dart';
 import '../../../../core/widgets/finova_card.dart';
-import '../../data/dashboard_dummy_data.dart';
+import '../../domain/dashboard_snapshot.dart';
 
 class ActivityChart extends StatelessWidget {
   const ActivityChart({super.key, required this.activity});

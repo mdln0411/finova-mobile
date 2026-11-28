@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../../app/theme/app_colors.dart';
 import '../../../../core/utils/rupiah.dart';
-import '../../data/dashboard_dummy_data.dart';
+import '../../../transactions/domain/finance_transaction.dart';
+import '../../domain/dashboard_snapshot.dart';
 
 class RecentTransactionTile extends StatelessWidget {
   const RecentTransactionTile({super.key, required this.transaction});
